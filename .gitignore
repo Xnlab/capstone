@@ -1,0 +1,4 @@
+server/.env
+server/storage/
+__pycache__/
+.claude/
