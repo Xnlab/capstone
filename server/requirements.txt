@@ -6,6 +6,8 @@ python-dotenv
 pyjwt
 bcrypt
 python-docx
+openpyxl
 pypdf
 reportlab
+PyMuPDF
 openai

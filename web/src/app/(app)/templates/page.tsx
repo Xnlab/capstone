@@ -1,16 +1,23 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useStandardFields } from "@/lib/hooks";
 import type { Template } from "@/lib/types";
-import { Badge, Card, CardHeader, Empty, Input, LinkButton, Loading, PageHeader } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Empty, ErrorText, Input, LinkButton, Loading, Modal, PageHeader } from "@/components/ui";
+
+type PreviewPage = { data: string; width: number; height: number };
+type Preview = { title: string; pages: PreviewPage[]; output_format: "hwpx" | "xlsx" | "docx" };
 
 export default function TemplatesPage() {
   const [items, setItems] = useState<Template[] | null>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("전체");
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewing, setPreviewing] = useState<number | null>(null);
+  const [previewError, setPreviewError] = useState("");
   const { labelOf } = useStandardFields();
 
   useEffect(() => {
@@ -23,6 +30,18 @@ export default function TemplatesPage() {
   const shown = builtin.filter(
     (t) => (cat === "전체" || t.category === cat) && (!q || [t.name, ...t.aliases, t.description].some((s) => s.includes(q))),
   );
+
+  const showPreview = async (t: Template) => {
+    setPreviewing(t.id);
+    setPreviewError("");
+    try {
+      setPreview(await api.get<Preview>(`/templates/${t.id}/preview-pages`));
+    } catch (error) {
+      setPreviewError((error as Error).message);
+    } finally {
+      setPreviewing(null);
+    }
+  };
 
   if (!items) return <Loading />;
 
@@ -48,12 +67,15 @@ export default function TemplatesPage() {
             </button>
           ))}
         </div>
-        <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid auto-rows-fr gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map((t) => (
-            <div key={t.id} className="rounded-lg border border-line p-4">
-              <div className="flex items-center justify-between">
+            <div key={t.id} className="flex h-full flex-col rounded-lg border border-line p-4">
+              <div className="flex items-center justify-between gap-2">
                 <span className="font-semibold">{t.name}</span>
-                <Badge>{t.category}</Badge>
+                <div className="flex gap-1">
+                  <Badge tone="indigo">{t.output_format === "xlsx" ? "Excel" : "한글"}</Badge>
+                  <Badge>{t.category}</Badge>
+                </div>
               </div>
               <p className="mt-1.5 text-[13px] text-gray-600">{t.description}</p>
               <p className="mt-2 text-xs text-muted">다른 이름: {t.aliases.join(", ")}</p>
@@ -63,6 +85,11 @@ export default function TemplatesPage() {
                     {labelOf(k)}
                   </span>
                 ))}
+              </div>
+              <div className="mt-auto pt-4">
+                <Button className="w-full" variant="secondary" size="sm" loading={previewing === t.id} onClick={() => showPreview(t)}>
+                  미리보기
+                </Button>
               </div>
             </div>
           ))}
@@ -96,6 +123,37 @@ export default function TemplatesPage() {
           </ul>
         )}
       </Card>
+
+      <Modal open={Boolean(preview)} onClose={() => setPreview(null)} title={`${preview?.title ?? "양식"} 미리보기`} className="max-w-5xl">
+        {preview && (
+          <>
+            <div className="mb-3 flex items-center justify-between gap-3 text-xs text-muted">
+              <span>샘플 데이터로 작성된 실제 A4 페이지 미리보기입니다.</span>
+              <Badge tone="indigo">실제 원본: {preview.output_format === "xlsx" ? "Excel(XLSX)" : "한글(HWPX)"}</Badge>
+            </div>
+            <div className="max-h-[78vh] space-y-4 overflow-auto rounded-lg border border-line bg-gray-200 p-4">
+              {preview.pages.map((page, index) => (
+                <div key={index} className="mx-auto max-w-[794px]">
+                  <div className="mb-1 text-center text-[11px] text-muted">{index + 1} / {preview.pages.length} 페이지</div>
+                  <Image
+                    src={page.data}
+                    alt={`${preview.title} ${index + 1}페이지`}
+                    width={page.width}
+                    height={page.height}
+                    unoptimized
+                    className="h-auto w-full bg-white shadow-lg"
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Modal>
+      {previewError && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-md">
+          <ErrorText>{previewError}</ErrorText>
+        </div>
+      )}
     </>
   );
 }

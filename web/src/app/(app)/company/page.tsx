@@ -14,6 +14,11 @@ const FIELDS: { key: keyof Company; label: string; placeholder: string; required
   { key: "phone", label: "대표 연락처", placeholder: "042-000-0000" },
   { key: "email", label: "대표 이메일", placeholder: "contact@company.com" },
   { key: "manager_name", label: "실무 담당자", placeholder: "김담당", hint: "사업책임자·현장대리인 칸에 사용" },
+  { key: "business_type", label: "업태", placeholder: "정보통신업", hint: "견적서 공급자 정보에 사용" },
+  { key: "business_item", label: "종목", placeholder: "소프트웨어 개발", hint: "견적서 공급자 정보에 사용" },
+  { key: "bank_name", label: "거래은행", placeholder: "○○은행", hint: "선금·대금 지급 서류에 사용" },
+  { key: "account_number", label: "계좌번호", placeholder: "000-000-000000", hint: "선금·대금 지급 서류에 사용" },
+  { key: "account_holder", label: "예금주", placeholder: "(주)회사명", hint: "선금·대금 지급 서류에 사용" },
 ];
 
 export default function CompanyPage() {
@@ -47,7 +52,7 @@ export default function CompanyPage() {
 
   return (
     <>
-      <PageHeader title="회사 정보" desc="한 번 입력하면 모든 서류의 상호·대표자·사업자번호 칸에 자동으로 채워집니다." />
+      <PageHeader title="회사 정보" desc="한 번 입력하면 모든 서류의 업체·담당자·계좌 정보에 자동으로 채워집니다." />
       {welcome && (
         <Card className="mb-5 border-primary/30 bg-primary-soft px-5 py-4 text-sm">
           가입을 환영합니다! 먼저 회사 정보를 입력해 주세요. 이후 계약을 만들면 서류가 자동으로 작성됩니다.

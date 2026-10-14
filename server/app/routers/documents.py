@@ -10,8 +10,8 @@ from app.models import AuditLog, Document, User
 from app.routers.company import get_or_create_company
 from app.schemas import DocumentUpdate
 from app.services import ai, renderer
-from app.services.documents import auto_values, build_docx, safe_filename, template_keys, to_out
-from app.standard_fields import base_values
+from app.services.documents import auto_values, build_docx, build_native, safe_filename, template_keys, to_out
+from app.standard_fields import base_values, korean_amount
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -33,7 +33,11 @@ def update_document(document_id: int, body: DocumentUpdate, user: User = Depends
     """사용자 수정. 수정 후에는 다시 검증이 필요하므로 상태를 draft로 되돌린다."""
     d = get_owned_doc(db, user, document_id)
     allowed = set(template_keys(d.template))
-    d.values = {**d.values, **{k: v for k, v in body.values.items() if k in allowed}}
+    changed = {k: v for k, v in body.values.items() if k in allowed}
+    if "payment_amount" in changed and "payment_amount_korean" in allowed:
+        amount = int("".join(ch for ch in changed["payment_amount"] if ch.isdigit()) or 0)
+        changed["payment_amount_korean"] = korean_amount(amount) if amount else ""
+    d.values = {**d.values, **changed}
     d.status = "draft"
     db.commit()
     return to_out(d)
@@ -76,15 +80,18 @@ def preview(document_id: int, user: User = Depends(get_current_user), db: Sessio
 
 
 @router.get("/{document_id}/download")
-def download(document_id: int, format: str = "docx", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def download(document_id: int, format: str = "native", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     d = get_owned_doc(db, user, document_id)
-    docx = build_docx(d)
     name = safe_filename(f"{d.contract.contract_title}_{d.title}")
     if format == "pdf":
+        docx = build_docx(d)
         data, media, ext = renderer.docx_to_pdf_bytes(docx), "application/pdf", "pdf"
+    elif format == "native":
+        data, ext, media = build_native(d)
     elif format == "docx":
+        docx = build_docx(d)
         data, media, ext = renderer.docx_bytes(docx), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"
     else:
-        raise HTTPException(400, "format은 docx 또는 pdf")
+        raise HTTPException(400, "format은 native, pdf 또는 docx")
     return Response(data, media_type=media, headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name + '.' + ext)}"})
 

@@ -7,13 +7,21 @@ import { useQueryParam, useStandardFields } from "@/lib/hooks";
 import type { Doc, Template } from "@/lib/types";
 import { Badge, Button, Card, CardHeader, ErrorText, Field, Input, Loading, PageHeader, Textarea } from "@/components/ui";
 
-const LONG_FIELDS = new Set(["description", "work_summary"]);
+const LONG_FIELDS = new Set([
+  "description", "work_summary", "quote_items", "detail_items", "completion_details",
+  "work_method", "work_schedule", "usage_purpose", "attendees", "activity_details", "activity_result",
+]);
 const DERIVED_HINT: Record<string, string> = {
   amount_korean: "계약금액에서 자동 계산됩니다",
   supply_amount: "계약금액 ÷ 1.1",
   vat: "계약금액 − 공급가액",
   period: "착수일 ~ 완료일",
   submit_date: "오늘 날짜",
+};
+const FIELD_HINT: Record<string, string> = {
+  quote_items: "한 줄에 하나씩 ‘품목|수량|단가|비고’ 형식으로 입력하세요",
+  detail_items: "한 줄에 하나씩 ‘항목|수량|단가|비고’ 형식으로 입력하세요",
+  payment_amount_korean: "청구금액을 저장하면 자동으로 다시 계산됩니다",
 };
 
 export default function DocumentEditor() {
@@ -97,6 +105,9 @@ export default function DocumentEditor() {
 
   if (!doc) return <Loading />;
 
+  const nativeLabel = doc.output_format === "xlsx" ? "Excel" : doc.output_format === "hwpx" ? "한글(HWPX)" : "Word";
+  const nativeExt = doc.output_format;
+
   return (
     <>
       <PageHeader
@@ -110,8 +121,8 @@ export default function DocumentEditor() {
         }
         action={
           <>
-            <Button variant="secondary" onClick={() => api.download(`/documents/${docId}/download?format=docx`, `${doc.title}.docx`)}>
-              Word
+            <Button variant="secondary" onClick={() => api.download(`/documents/${docId}/download?format=native`, `${doc.title}.${nativeExt}`)}>
+              {nativeLabel}
             </Button>
             <Button variant="secondary" onClick={() => api.download(`/documents/${docId}/download?format=pdf`, `${doc.title}.pdf`)}>
               PDF
@@ -139,7 +150,7 @@ export default function DocumentEditor() {
                 <Field
                   key={k}
                   label={labelOf(k) + (orig?.length ? ` · 양식상 “${orig.join(", ")}”` : "")}
-                  hint={missing ? "필수 항목이 비어 있습니다" : DERIVED_HINT[k]}
+                  hint={missing ? "필수 항목이 비어 있습니다" : FIELD_HINT[k] ?? DERIVED_HINT[k]}
                 >
                   <div className={`rounded-lg ${focus === k ? "ring-2 ring-amber-400 ring-offset-2" : ""}`}>
                     {LONG_FIELDS.has(k) ? (

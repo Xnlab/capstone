@@ -1,8 +1,10 @@
 import uuid
+import base64
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -11,11 +13,58 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models import AuditLog, Document, Template, User
 from app.schemas import TemplateMappingIn
-from app.services import ai, form_parser
+from app.services import ai, form_parser, renderer
 from app.services.documents import template_keys
 from app.standard_fields import STANDARD_FIELDS
 
 router = APIRouter(prefix="/templates", tags=["templates"])
+
+
+SAMPLE_VALUES = {
+    "company_name": "주식회사 샘플",
+    "representative": "김대표",
+    "business_number": "123-45-67890",
+    "address": "서울특별시 중구 세종대로 1",
+    "phone": "02-1234-5678",
+    "email": "hello@example.com",
+    "manager_name": "박담당",
+    "business_type": "정보통신업",
+    "business_item": "소프트웨어 개발",
+    "bank_name": "샘플은행",
+    "account_number": "123-456-789012",
+    "account_holder": "주식회사 샘플",
+    "contract_title": "지역문화 행사 안내 웹서비스 구축 용역",
+    "client_name": "샘플문화재단",
+    "amount": "11,000,000원",
+    "amount_korean": "일금 일천백만원정",
+    "supply_amount": "10,000,000원",
+    "vat": "1,000,000원",
+    "start_date": "2026. 10. 15.",
+    "end_date": "2026. 12. 20.",
+    "period": "2026. 10. 15. ~ 2026. 12. 20.",
+    "description": "반응형 웹서비스 기획, 디자인, 개발 및 운영자 교육",
+    "submit_date": "2026. 10. 14.",
+    "contract_date": "2026. 10. 14.",
+    "contract_number": "2026-용역-1014",
+    "document_number": "샘플-2026-014",
+    "advance_amount": "5,500,000원",
+    "payment_amount": "11,000,000원",
+    "payment_amount_korean": "일금 일천백만원정",
+    "usage_purpose": "개발 인건비 및 클라우드 이용료",
+    "quote_items": "서비스 기획·디자인|1|3000000|\n웹서비스 개발|1|5000000|\n시험·운영자 교육|1|2000000|",
+    "detail_items": "기획 및 화면설계|1|2500000|\nUI 디자인|1|2500000|\n프론트·백엔드 개발|1|5000000|",
+    "completion_details": "계약 범위의 웹서비스 구축, 기능시험 및 운영자 교육을 완료했습니다.",
+    "work_summary": "지역문화 행사 정보를 쉽게 확인하고 운영자가 직접 관리할 수 있는 웹서비스를 구축합니다.",
+    "work_method": "1. 요구사항을 확정합니다.\n2. 설계와 개발을 단계별로 수행합니다.\n3. 검수 의견을 반영합니다.",
+    "work_schedule": "요구사항 분석 → 화면설계 → 개발 → 통합시험 → 검수",
+    "activity_date": "2026. 10. 14.",
+    "activity_time": "14:00 ~ 16:00",
+    "activity_place": "샘플문화재단 회의실",
+    "attendees": "김대표, 박담당, 이주무관",
+    "activity_topic": "착수회의 및 요구사항 확정",
+    "activity_details": "사업 목표와 일정, 주요 기능, 산출물 제출 방식을 협의했습니다.",
+    "activity_result": "주간 진행상황을 공유하고 화면설계안을 제출하기로 했습니다.",
+}
 
 
 def to_out(t: Template) -> dict:
@@ -24,6 +73,7 @@ def to_out(t: Template) -> dict:
         "description": t.description, "aliases": t.aliases or [], "fields": t.fields or [],
         "field_keys": template_keys(t), "source_type": t.source_type, "status": t.status,
         "expires_at": t.expires_at, "created_at": t.created_at,
+        "output_format": t.definition.get("output_format", "docx") if t.kind == "builtin" else "docx",
     }
 
 
@@ -47,7 +97,7 @@ def standard_fields():
 
 @router.get("")
 def list_templates(kind: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    items = visible_templates(db, user)
+    items = [t for t in visible_templates(db, user) if t.status == "ready"]
     if kind:
         items = [t for t in items if t.kind == kind]
     return [to_out(t) for t in items]
@@ -68,6 +118,58 @@ def search(q: str = "", user: User = Depends(get_current_user), db: Session = De
 @router.get("/{template_id}")
 def get_template(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return to_out(get_visible(db, user, template_id))
+
+
+@router.get("/{template_id}/preview")
+def preview_template(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Render a browser preview with clearly fictional sample values."""
+    t = get_visible(db, user, template_id)
+    if t.kind != "builtin":
+        raise HTTPException(400, "서비스 기본 양식만 샘플 미리보기를 지원합니다.")
+    docx = renderer.render_builtin_docx(t.definition, SAMPLE_VALUES)
+    return {
+        "title": t.name,
+        "html": renderer.docx_to_html(docx),
+        "output_format": t.definition.get("output_format", "hwpx"),
+    }
+
+
+@router.get("/{template_id}/preview-file")
+def preview_template_file(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return a real A4 PDF preview so page layout and page breaks are visible."""
+    t = get_visible(db, user, template_id)
+    if t.kind != "builtin":
+        raise HTTPException(400, "서비스 기본 양식만 샘플 미리보기를 지원합니다.")
+    docx = renderer.render_builtin_docx(t.definition, SAMPLE_VALUES)
+    data = renderer.docx_to_pdf_bytes(docx)
+    return Response(
+        data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="template-{t.id}-preview.pdf"'},
+    )
+
+
+@router.get("/{template_id}/preview-pages")
+def preview_template_pages(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Render every A4 preview page to PNG for browsers without an embedded PDF viewer."""
+    import pymupdf
+
+    t = get_visible(db, user, template_id)
+    if t.kind != "builtin":
+        raise HTTPException(400, "서비스 기본 양식만 샘플 미리보기를 지원합니다.")
+    docx = renderer.render_builtin_docx(t.definition, SAMPLE_VALUES)
+    pdf = renderer.docx_to_pdf_bytes(docx)
+    pages = []
+    with pymupdf.open(stream=pdf, filetype="pdf") as document:
+        for page in document:
+            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(1.6, 1.6), alpha=False)
+            encoded = base64.b64encode(pixmap.tobytes("png")).decode("ascii")
+            pages.append({"data": f"data:image/png;base64,{encoded}", "width": pixmap.width, "height": pixmap.height})
+    return {
+        "title": t.name,
+        "output_format": t.definition.get("output_format", "hwpx"),
+        "pages": pages,
+    }
 
 
 @router.post("/upload")

@@ -58,6 +58,10 @@ def _para(doc, text="", size=11, bold=False, align=None, space_after=6):
 
 # ---------------------------------------------------------------- 기본 양식
 def render_builtin_docx(definition: dict, values: dict) -> DocxDocument:
+    if definition.get("sections"):
+        from app.services.professional_renderer import render_docx
+
+        return render_docx(definition, values)
     doc = DocxDocument()
     sec = doc.sections[0]
     sec.left_margin = sec.right_margin = Cm(2.5)

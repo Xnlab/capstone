@@ -19,7 +19,7 @@ function Row({ t, badge, adding, onAdd }: { t: Template; badge?: ReactNode; addi
     <li className="flex items-center justify-between gap-2 py-2.5">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-sm font-medium">
-          {t.name} {badge}
+          {t.name} <Badge tone="gray">{t.output_format === "xlsx" ? "Excel" : t.output_format === "hwpx" ? "한글" : "Word"}</Badge> {badge}
         </div>
         <div className="truncate text-xs text-muted">{t.description}</div>
       </div>

@@ -39,6 +39,11 @@ class CompanyIn(BaseModel):
     phone: str = ""
     email: str = ""
     manager_name: str = ""
+    business_type: str = ""
+    business_item: str = ""
+    bank_name: str = ""
+    account_number: str = ""
+    account_holder: str = ""
 
 
 class CompanyOut(CompanyIn, ORM):
@@ -82,6 +87,7 @@ class TemplateOut(ORM):
     fields: list[TemplateField] = []
     field_keys: list[str] = []
     source_type: str | None = None
+    output_format: str = "docx"
     status: str
     expires_at: datetime | None = None
     created_at: datetime
@@ -118,6 +124,7 @@ class DocumentOut(ORM):
     created_at: datetime
     updated_at: datetime
     template_kind: str = ""
+    output_format: str = "docx"
     field_keys: list[str] = []
     missing: list[str] = []
 
@@ -127,7 +134,7 @@ class MailIn(BaseModel):
     subject: str = ""
     body: str = ""
     document_ids: list[int]
-    format: str = "pdf"  # pdf | docx
+    format: str = "native"  # native | pdf | both
 
 
 TokenOut.model_rebuild()

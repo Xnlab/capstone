@@ -1,4 +1,6 @@
 server/.env
 server/storage/
+server/.venv/
+work/
 __pycache__/
 .claude/

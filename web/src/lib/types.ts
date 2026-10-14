@@ -8,6 +8,11 @@ export type Company = {
   phone: string;
   email: string;
   manager_name: string;
+  business_type: string;
+  business_item: string;
+  bank_name: string;
+  account_number: string;
+  account_holder: string;
 };
 
 export type Contract = {
@@ -43,7 +48,8 @@ export type Template = {
   fields: TemplateField[];
   field_keys: string[];
   source_type: "docx" | "pdf" | null;
-  status: "analyzing" | "ready";
+  output_format: "hwpx" | "xlsx" | "docx";
+  status: "analyzing" | "ready" | "archived";
   expires_at: string | null;
   created_at: string;
 };
@@ -58,6 +64,7 @@ export type Doc = {
   values: Record<string, string>;
   status: "draft" | "reviewed";
   template_kind: "builtin" | "uploaded";
+  output_format: "hwpx" | "xlsx" | "docx";
   field_keys: string[];
   missing: string[];
   updated_at: string;

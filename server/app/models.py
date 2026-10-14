@@ -32,6 +32,11 @@ class Company(Base):
     phone: Mapped[str] = mapped_column(String(30), default="")
     email: Mapped[str] = mapped_column(String(120), default="")
     manager_name: Mapped[str] = mapped_column(String(50), default="")
+    business_type: Mapped[str] = mapped_column(String(100), default="")
+    business_item: Mapped[str] = mapped_column(String(100), default="")
+    bank_name: Mapped[str] = mapped_column(String(50), default="")
+    account_number: Mapped[str] = mapped_column(String(50), default="")
+    account_holder: Mapped[str] = mapped_column(String(100), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user: Mapped[User] = relationship(back_populates="company")

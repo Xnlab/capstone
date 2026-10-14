@@ -6,16 +6,16 @@ import type { Doc } from "@/lib/types";
 import { Button, ErrorText, Field, Input, Modal, Textarea } from "@/components/ui";
 
 const FORMATS = [
+  { id: "native", label: "원본(한글/Excel)" },
   { id: "pdf", label: "PDF" },
-  { id: "docx", label: "Word" },
-  { id: "both", label: "PDF+Word" },
+  { id: "both", label: "원본+PDF" },
 ];
 
 export default function MailModal({ onClose, contractId, docs }: { onClose: () => void; contractId: number; docs: Doc[] }) {
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [format, setFormat] = useState("pdf");
+  const [format, setFormat] = useState("native");
   const [selected, setSelected] = useState<number[]>(docs.map((d) => d.id));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

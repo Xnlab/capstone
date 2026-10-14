@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.builtin_templates import template_field_keys
 from app.models import AuditLog, Company, Contract, Document, Template
 from app.services import ai, renderer
+from app.services.professional_renderer import render_native
 from app.standard_fields import base_values
 
 
@@ -46,6 +47,24 @@ def build_docx(doc: Document):
     return renderer.rebuild_from_pdf_fields(t.name, t.fields, doc.values)
 
 
+def output_format(t: Template) -> str:
+    """User-facing native format. Uploaded forms keep their existing DOCX path."""
+    if t.kind == "builtin":
+        return t.definition.get("output_format", "hwpx")
+    return "docx"
+
+
+def build_native(doc: Document) -> tuple[bytes, str, str]:
+    """Return bytes, extension, and full media type for the preferred native file."""
+    if doc.template.kind == "builtin" and doc.template.definition.get("sections"):
+        return render_native(doc.template.definition, doc.values)
+    return (
+        renderer.docx_bytes(build_docx(doc)),
+        "docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
 def safe_filename(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|\s]+', "_", name).strip("_") or "document"
 
@@ -64,6 +83,7 @@ def to_out(doc: Document) -> dict:
         "created_at": doc.created_at,
         "updated_at": doc.updated_at,
         "template_kind": doc.template.kind,
+        "output_format": output_format(doc.template),
         "field_keys": keys,
         "missing": [k for k in required if not str((doc.values or {}).get(k, "") or "").strip()],
     }

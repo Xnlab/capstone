@@ -134,6 +134,7 @@ export default function ContractWorkspace() {
                           {d.title}
                         </Link>
                         <Badge tone={d.template_kind === "builtin" ? "gray" : "blue"}>{d.template_kind === "builtin" ? "기본 양식" : "자체 양식"}</Badge>
+                        <Badge tone="indigo">{d.output_format === "xlsx" ? "Excel" : d.output_format === "hwpx" ? "한글" : "Word"}</Badge>
                         {d.status === "reviewed" ? <Badge tone="green">검토 완료</Badge> : <Badge tone="amber">작성 중</Badge>}
                       </div>
                       <div className="mt-0.5 text-xs text-muted">
@@ -148,8 +149,8 @@ export default function ContractWorkspace() {
                       <Button size="sm" variant="secondary" onClick={() => router.push(`/contracts/${cid}/documents/${d.id}`)}>
                         편집·미리보기
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => api.download(`/documents/${d.id}/download?format=pdf`, `${d.title}.pdf`)}>
-                        PDF
+                      <Button size="sm" variant="ghost" onClick={() => api.download(`/documents/${d.id}/download?format=native`, `${d.title}.${d.output_format}`)}>
+                        {d.output_format === "xlsx" ? "Excel" : d.output_format === "hwpx" ? "한글" : "Word"}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => removeDoc(d)} aria-label="삭제">
                         ✕
@@ -181,13 +182,16 @@ export default function ContractWorkspace() {
                 AI 검토 실행 (누락·오류·불일치)
               </Button>
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="secondary" onClick={() => exportZip("both")} loading={exporting} disabled={docs.length === 0}>
-                  ZIP 다운로드
+                <Button variant="secondary" onClick={() => exportZip("native")} loading={exporting} disabled={docs.length === 0}>
+                  원본 ZIP
                 </Button>
-                <Button variant="secondary" onClick={() => setMailOpen(true)} disabled={docs.length === 0}>
-                  메일 제출
+                <Button variant="secondary" onClick={() => exportZip("pdf")} loading={exporting} disabled={docs.length === 0}>
+                  PDF ZIP
                 </Button>
               </div>
+              <Button variant="secondary" className="w-full" onClick={() => setMailOpen(true)} disabled={docs.length === 0}>
+                메일 제출
+              </Button>
               {result && !result.summary.passed && <p className="text-xs text-red-500">검토에서 오류가 발견되었습니다. 수정 후 다시 검토하세요.</p>}
             </div>
           </Card>

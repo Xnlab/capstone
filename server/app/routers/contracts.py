@@ -14,7 +14,7 @@ from app.routers.company import get_or_create_company
 from app.routers.templates import get_visible
 from app.schemas import ContractIn, DocumentCreate, MailIn
 from app.services import ai, renderer
-from app.services.documents import auto_values, build_docx, safe_filename, to_out
+from app.services.documents import auto_values, build_docx, build_native, safe_filename, to_out
 from app.services.mailer import send_mail
 from app.services.validator import validate
 from app.standard_fields import base_values
@@ -129,17 +129,18 @@ def validate_contract(contract_id: int, with_ai: bool = False, user: User = Depe
 def _render_files(docs: list[Document], fmt: str) -> list[tuple[str, bytes, str]]:
     files = []
     for i, d in enumerate(docs, 1):
-        docx = build_docx(d)
         name = f"{i:02d}_{safe_filename(d.title)}"
-        if fmt in ("docx", "both"):
-            files.append((f"{name}.docx", renderer.docx_bytes(docx), "vnd.openxmlformats-officedocument.wordprocessingml.document"))
+        if fmt in ("native", "both", "docx"):
+            data, ext, media = build_native(d)
+            files.append((f"{name}.{ext}", data, media.split("/", 1)[1]))
         if fmt in ("pdf", "both"):
+            docx = build_docx(d)
             files.append((f"{name}.pdf", renderer.docx_to_pdf_bytes(docx), "pdf"))
     return files
 
 
 @router.get("/{contract_id}/export")
-def export_zip(contract_id: int, format: str = "both", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def export_zip(contract_id: int, format: str = "native", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = get_owned(db, user, contract_id)
     docs = sorted(c.documents, key=lambda d: d.id)
     if not docs:

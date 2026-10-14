@@ -209,3 +209,12 @@ def template_field_keys(definition: dict) -> list[str]:
 
 def fill_text(text: str, values: dict) -> str:
     return _PLACEHOLDER.sub(lambda m: str(values.get(m.group(1), "") or f"[{m.group(1)}]"), text)
+
+
+# The original compact definitions above are retained for migration history.
+# Runtime imports use the upgraded native-document definitions below.
+from app.professional_templates import (  # noqa: E402,F401
+    BUILTIN_TEMPLATES as BUILTIN_TEMPLATES,
+    fill_text as fill_text,
+    template_field_keys as template_field_keys,
+)

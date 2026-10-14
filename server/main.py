@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.builtin_templates import BUILTIN_TEMPLATES
@@ -24,16 +24,36 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
 
 
+def ensure_company_columns():
+    """Add optional reusable business/bank fields to an existing database."""
+    existing = {column["name"] for column in inspect(engine).get_columns("companies")}
+    columns = {
+        "business_type": "VARCHAR(100)",
+        "business_item": "VARCHAR(100)",
+        "bank_name": "VARCHAR(50)",
+        "account_number": "VARCHAR(50)",
+        "account_holder": "VARCHAR(100)",
+    }
+    with engine.begin() as connection:
+        for name, sql_type in columns.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE companies ADD COLUMN {name} {sql_type} NOT NULL DEFAULT ''"))
+
+
 def seed_builtin_templates(db: Session):
     """기본 양식 라이브러리를 DB에 반영 (코드 정의가 정본)."""
+    active_keys = {t["key"] for t in BUILTIN_TEMPLATES}
     for t in BUILTIN_TEMPLATES:
         row = db.scalar(select(Template).where(Template.key == t["key"]))
-        definition = {**t["definition"], "required": t["required"]}
+        definition = dict(t["definition"])
         if row is None:
             row = Template(key=t["key"], kind="builtin", owner_id=None)
             db.add(row)
         row.name, row.category, row.description = t["name"], t["category"], t["description"]
         row.aliases, row.definition, row.status = t["aliases"], definition, "ready"
+    for row in db.scalars(select(Template).where(Template.kind == "builtin")).all():
+        if row.key not in active_keys:
+            row.status = "archived"
     db.commit()
 
 
@@ -51,6 +71,7 @@ def purge_expired_uploads(db: Session) -> int:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(engine)
+    ensure_company_columns()
     with SessionLocal() as db:
         seed_builtin_templates(db)
         n = purge_expired_uploads(db)
