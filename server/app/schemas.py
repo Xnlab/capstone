@@ -1,6 +1,8 @@
 from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+from pydantic import HttpUrl
 
 
 class ORM(BaseModel):
@@ -99,6 +101,24 @@ class TemplateMappingIn(BaseModel):
     fields: list[TemplateField]
 
 
+class LibraryMetadataIn(BaseModel):
+    scope: Literal["private", "organization"] = "private"
+    organization: str = Field(default="", max_length=100)
+    document_type: str = Field(default="", max_length=100)
+    source_url: HttpUrl | None = None
+    source_date: date | None = None
+    version: str = Field(default="", max_length=100)
+    project_code: str = Field(default="", max_length=100)
+    usage_terms: str = Field(default="", max_length=1000)
+    review_note: str = Field(default="", max_length=1000)
+
+
+class LibraryPublishIn(BaseModel):
+    mapping_checked: bool
+    output_checked: bool
+    rights_checked: bool
+
+
 class SearchResult(BaseModel):
     template: TemplateOut
     score: float
@@ -108,6 +128,7 @@ class SearchResult(BaseModel):
 # ---------- document
 class DocumentCreate(BaseModel):
     template_id: int
+    project_code: str = ""
 
 
 class DocumentUpdate(BaseModel):

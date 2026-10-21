@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { api } from "@/lib/api";
 import { useQueryParam, useStandardFields } from "@/lib/hooks";
-import type { Template, TemplateField, UploadAnalysis } from "@/lib/types";
+import type { LibraryMetadata, Template, TemplateField, UploadAnalysis } from "@/lib/types";
+import LibraryMetadataEditor, { metadataPayload } from "@/components/LibraryMetadataEditor";
 import MappingEditor from "@/components/MappingEditor";
 import { Badge, Button, Card, CardHeader, ErrorText, Field, Input, PageHeader, Spinner } from "@/components/ui";
 
@@ -15,6 +16,18 @@ export default function UploadTemplatePage() {
   const { fields: standard } = useStandardFields();
   const inputRef = useRef<HTMLInputElement>(null);
   const contractId = useQueryParam("contract");
+  const libraryMode = useQueryParam("library");
+  const organization = useQueryParam("organization");
+  const source = useQueryParam("source");
+  const [admin, setAdmin] = useState(false);
+  const [error, setError] = useState("");
+  const [meta, setMeta] = useState<LibraryMetadata>({ scope: "private" });
+  useEffect(() => {
+    api.get<{ is_admin: boolean }>("/templates/library-settings").then(s => {
+      setAdmin(s.is_admin);
+      setMeta({ scope: s.is_admin && libraryMode ? "organization" : "private", organization: organization || "", source_url: source || null });
+    }).catch(e => setError(e.message));
+  }, [libraryMode, organization, source]);
   const [drag, setDrag] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [template, setTemplate] = useState<Template | null>(null);
@@ -22,13 +35,12 @@ export default function UploadTemplatePage() {
   const [fields, setFields] = useState<TemplateField[]>([]);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const upload = async (file: File) => {
     setError("");
     setUploading(true);
     try {
-      const r = await api.upload<{ template: Template; analysis: UploadAnalysis }>("/templates/upload", file);
+      const r = await api.upload<{ template: Template; analysis: UploadAnalysis }>(`/templates/upload?organization_library=${admin && meta.scope === "organization"}`, file);
       setTemplate(r.template);
       setAnalysis(r.analysis);
       setFields(r.template.fields);
@@ -52,8 +64,11 @@ export default function UploadTemplatePage() {
     setSaving(true);
     setError("");
     try {
+      await api.put(`/templates/${template.id}/metadata`, metadataPayload(meta));
       await api.put(`/templates/${template.id}/mapping`, { name, fields });
-      if (contractId) {
+      if (meta.scope === "organization") {
+        router.push(`/templates/${template.id}`);
+      } else if (contractId) {
         await api.post(`/contracts/${contractId}/documents`, { template_id: template.id });
         router.push(`/contracts/${contractId}`);
       } else {
@@ -73,9 +88,10 @@ export default function UploadTemplatePage() {
     <>
       <PageHeader
         back={contractId ? { href: `/contracts/${contractId}`, label: "계약으로 돌아가기" } : { href: "/templates", label: "양식 라이브러리" }}
-        title="기업 자체 양식 업로드"
+        title={meta.scope === "organization" ? "기관·기업 지정 양식 등록" : "내 양식 업로드"}
         desc="기업마다 다른 항목명(총 용역대금 · 지급 예정 금액 · 용역 수행비)을 AI가 의미로 이해해 표준 데이터에 연결합니다."
       />
+      <Card className="mb-5 p-5"><LibraryMetadataEditor value={meta} onChange={setMeta} admin={admin} /></Card>
 
       <ol className="mb-5 flex flex-wrap gap-2 text-[13px]">
         {STAGES.map((s, i) => (
@@ -166,7 +182,7 @@ export default function UploadTemplatePage() {
                 다른 파일
               </Button>
               <Button onClick={save} loading={saving}>
-                {contractId ? "저장하고 이 계약에 서류 추가 →" : "양식 저장"}
+                {meta.scope === "organization" ? "저장하고 공개 검토 →" : contractId ? "저장하고 이 계약에 서류 추가 →" : "양식 저장"}
               </Button>
             </div>
           </Card>

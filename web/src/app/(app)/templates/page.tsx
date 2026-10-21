@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import OrganizationLibrary from "@/components/OrganizationLibrary";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useStandardFields } from "@/lib/hooks";
@@ -14,6 +15,9 @@ type Preview = { title: string; pages: PreviewPage[]; output_format: "hwpx" | "x
 export default function TemplatesPage() {
   const [items, setItems] = useState<Template[] | null>(null);
   const [q, setQ] = useState("");
+  const [section, setSection] = useState("common");
+  const [admin, setAdmin] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [cat, setCat] = useState("전체");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewing, setPreviewing] = useState<number | null>(null);
@@ -21,11 +25,12 @@ export default function TemplatesPage() {
   const { labelOf } = useStandardFields();
 
   useEffect(() => {
-    api.get<Template[]>("/templates").then(setItems);
+    api.get<Template[]>("/templates?include_drafts=true").then(setItems).catch(e => setLoadError(e.message));
+    api.get<{ is_admin: boolean }>("/templates/library-settings").then(s => setAdmin(s.is_admin)).catch(e => setLoadError(e.message));
   }, []);
 
   const builtin = useMemo(() => items?.filter((t) => t.kind === "builtin") ?? [], [items]);
-  const mine = items?.filter((t) => t.kind === "uploaded") ?? [];
+  const mine = items?.filter((t) => t.library.scope === "private") ?? [];
   const cats = ["전체", ...Array.from(new Set(builtin.map((t) => t.category)))];
   const shown = builtin.filter(
     (t) => (cat === "전체" || t.category === cat) && (!q || [t.name, ...t.aliases, t.description].some((s) => s.includes(q))),
@@ -43,17 +48,20 @@ export default function TemplatesPage() {
     }
   };
 
-  if (!items) return <Loading />;
+  if (!items) return loadError ? <ErrorText>{loadError}</ErrorText> : <Loading />;
 
   return (
     <>
       <PageHeader
         title="양식 라이브러리"
-        desc="서비스 기본 양식과 우리 회사가 올린 자체 양식을 관리합니다."
+        desc="공통 양식, 제출처 지정 양식, 내 업로드 양식을 구분해 관리합니다."
         action={<LinkButton href="/templates/upload">＋ 자체 양식 업로드</LinkButton>}
       />
 
-      <Card className="mb-6">
+      <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="양식 구분">{[["common", "공통 양식"], ["organization", "기관·기업 지정 양식"], ["private", "내 업로드 양식"]].map(([key, label]) => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)} className={`rounded-lg px-4 py-2 text-sm ${section === key ? "bg-primary text-white" : "bg-white border border-line"}`}>{label}</button>)}</div>
+      <ErrorText>{loadError}</ErrorText>
+      {section === "organization" && <OrganizationLibrary items={items} admin={admin} />}
+      {section === "common" && <Card className="mb-6">
         <CardHeader title="서비스 기본 양식" desc="계약 과정에서 자주 요구되는 서류 — 이름이 달라도(착수신고서, 준공계 …) 찾아집니다." />
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="양식 이름 검색" className="max-w-xs" />
@@ -94,10 +102,10 @@ export default function TemplatesPage() {
             </div>
           ))}
         </div>
-      </Card>
+      </Card>}
 
-      <Card>
-        <CardHeader title="우리 회사 자체 양식" desc="업로드한 원본 파일은 보관기간이 지나면 자동 삭제됩니다." />
+      {section === "private" && <Card>
+        <CardHeader title="내 업로드 양식" desc="공개되지 않는 개인 양식입니다. 업로드한 원본은 보관기간 후 삭제됩니다." />
         {mine.length === 0 ? (
           <Empty title="업로드한 양식이 없습니다" desc="발주처가 보낸 Word/PDF 양식을 올리면 AI가 항목을 분석합니다." action={<LinkButton href="/templates/upload">업로드하기</LinkButton>} />
         ) : (
@@ -122,7 +130,7 @@ export default function TemplatesPage() {
             ))}
           </ul>
         )}
-      </Card>
+      </Card>}
 
       <Modal open={Boolean(preview)} onClose={() => setPreview(null)} title={`${preview?.title ?? "양식"} 미리보기`} className="max-w-5xl">
         {preview && (

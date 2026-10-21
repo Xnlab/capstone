@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import type { Template } from "@/lib/types";
-import { Badge, Button, Card, Input, Spinner } from "@/components/ui";
+import { Badge, Button, Card, ErrorText, Input, Spinner } from "@/components/ui";
 
-type SearchRes = { results: { template: Template; score: number; ai: boolean }[]; ai_enabled: boolean };
+type SearchRes = { results: { template: Template; score: number; ai: boolean; reason: string }[]; ai_enabled: boolean };
 
 const TABS = [
   { id: "search", label: "서류 검색", sub: "CASE 1 · 기본 양식" },
@@ -30,33 +30,37 @@ function Row({ t, badge, adding, onAdd }: { t: Template; badge?: ReactNode; addi
   );
 }
 
-export default function AddDocumentPanel({ contractId, onAdd }: { contractId: number; onAdd: (templateId: number) => Promise<void> }) {
+export default function AddDocumentPanel({ contractId, clientName, onAdd }: { contractId: number; clientName: string; onAdd: (templateId: number, projectCode?: string) => Promise<void> }) {
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("search");
   const [q, setQ] = useState("");
+  const [projectCode, setProjectCode] = useState("");
+  const [error, setError] = useState("");
   const [res, setRes] = useState<SearchRes | null>(null);
   const [searching, setSearching] = useState(false);
   const [mine, setMine] = useState<Template[]>([]);
   const [adding, setAdding] = useState<number | null>(null);
 
   useEffect(() => {
+    let active = true;
     const t = setTimeout(() => {
       setSearching(true);
       api
-        .get<SearchRes>(`/templates/search?q=${encodeURIComponent(q)}`)
-        .then(setRes)
-        .finally(() => setSearching(false));
+        .get<SearchRes>(`/templates/search?q=${encodeURIComponent(q)}&contract_id=${contractId}&project_code=${encodeURIComponent(projectCode)}`)
+        .then(r => { if (active) { setRes(r); setError(""); } })
+        .catch(e => { if (active) setError(e.message); })
+        .finally(() => { if (active) setSearching(false); });
     }, 250);
-    return () => clearTimeout(t);
-  }, [q]);
+    return () => { active = false; clearTimeout(t); };
+  }, [q, contractId, clientName, projectCode]);
 
   useEffect(() => {
-    if (tab === "upload") api.get<Template[]>("/templates?kind=uploaded").then((t) => setMine(t.filter((x) => x.status === "ready")));
+    if (tab === "upload") api.get<Template[]>("/templates?kind=uploaded").then((t) => setMine(t.filter((x) => x.status === "ready" && x.library.scope === "private"))).catch(e => setError(e.message));
   }, [tab]);
 
   const add = async (id: number) => {
     setAdding(id);
     try {
-      await onAdd(id);
+      await onAdd(id, projectCode);
     } finally {
       setAdding(null);
     }
@@ -78,9 +82,12 @@ export default function AddDocumentPanel({ contractId, onAdd }: { contractId: nu
       </div>
 
       <div className="p-4">
+        <ErrorText>{error}</ErrorText>
         {tab === "search" && (
           <>
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="예: 착수신고서 내라고 하네요" />
+            <Input className="mt-2" value={projectCode} onChange={e => setProjectCode(e.target.value)} placeholder="공고·사업번호 (해당 시)" />
+            <p className="mt-2 text-xs text-muted">발주처: {clientName || "미입력"} · 사업 지정 → 발주처 지정 → 공통 양식 순으로 추천합니다.</p>
             <p className="mt-1.5 text-xs text-muted">요청받은 문장 그대로 입력해도 됩니다. {res && !res.ai_enabled && "(현재 동의어 사전 기반 검색)"}</p>
             {searching && !res ? (
               <div className="py-6 text-center text-muted">
@@ -99,6 +106,7 @@ export default function AddDocumentPanel({ contractId, onAdd }: { contractId: nu
                         {r.template.kind === "uploaded" && <Badge tone="blue">자체</Badge>}
                         {q && r.score >= 0.8 && <Badge tone="indigo">추천</Badge>}
                         {r.ai && <Badge tone="green">AI</Badge>}
+                        <span className="text-xs text-muted">{r.reason}</span>
                       </>
                     }
                   />

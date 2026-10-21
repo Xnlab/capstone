@@ -3,4 +3,5 @@ server/storage/
 server/.venv/
 work/
 __pycache__/
+.venv/
 .claude/

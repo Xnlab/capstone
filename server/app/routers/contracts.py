@@ -16,6 +16,7 @@ from app.schemas import ContractIn, DocumentCreate, MailIn
 from app.services import ai, renderer
 from app.services.documents import auto_values, build_docx, build_native, safe_filename, to_out
 from app.services.mailer import send_mail
+from app.services.library import recommendation, scope
 from app.services.validator import validate
 from app.standard_fields import base_values
 
@@ -97,6 +98,8 @@ def create_document(contract_id: int, body: DocumentCreate, user: User = Depends
     t = get_visible(db, user, body.template_id)
     if t.status != "ready":
         raise HTTPException(400, "양식 항목 매핑을 먼저 확인·저장해 주세요.")
+    if scope(t) == "organization" and recommendation(t, c.client_name, body.project_code) is None:
+        raise HTTPException(400, "발주처 또는 공고번호가 다른 지정 양식입니다. 공통 양식을 선택하세요.")
     company = get_or_create_company(db, user)
     doc = Document(contract_id=c.id, template_id=t.id, title=t.name, values=auto_values(db, user.id, t, company, c))
     db.add(doc)

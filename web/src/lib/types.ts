@@ -39,6 +39,8 @@ export type TemplateField = {
 };
 
 export type Template = {
+  owner_id: number | null;
+  library: LibraryMetadata;
   id: number;
   kind: "builtin" | "uploaded";
   name: string;
@@ -49,9 +51,22 @@ export type Template = {
   field_keys: string[];
   source_type: "docx" | "pdf" | null;
   output_format: "hwpx" | "xlsx" | "docx";
-  status: "analyzing" | "ready" | "archived";
+  status: "analyzing" | "ready" | "archived" | "review_pending";
   expires_at: string | null;
   created_at: string;
+};
+
+export type LibraryMetadata = {
+  scope: "common" | "organization" | "private";
+  organization?: string;
+  document_type?: string;
+  source_url?: string | null;
+  source_date?: string | null;
+  version?: string;
+  project_code?: string;
+  usage_terms?: string;
+  review_note?: string;
+  reviewed_at?: string;
 };
 
 export type StandardField = { key: string; label: string; group: string; synonyms: string[] };

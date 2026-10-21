@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models import AuditLog, Document, Template, User
-from app.schemas import TemplateMappingIn
+from app.models import AuditLog, Contract, Document, Template, User
+from app.schemas import TemplateMappingIn, LibraryMetadataIn, LibraryPublishIn
+from app.services.library import is_admin, require_admin, metadata, scope, recommendation
 from app.services import ai, form_parser, renderer
 from app.services.documents import template_keys
 from app.standard_fields import STANDARD_FIELDS
@@ -70,24 +71,54 @@ SAMPLE_VALUES = {
 def to_out(t: Template) -> dict:
     return {
         "id": t.id, "kind": t.kind, "name": t.name, "category": t.category,
+        "owner_id": t.owner_id,
         "description": t.description, "aliases": t.aliases or [], "fields": t.fields or [],
         "field_keys": template_keys(t), "source_type": t.source_type, "status": t.status,
         "expires_at": t.expires_at, "created_at": t.created_at,
+        "library": {"scope": scope(t), **metadata(t)},
         "output_format": t.definition.get("output_format", "docx") if t.kind == "builtin" else "docx",
     }
 
 
 def visible_templates(db: Session, user: User):
-    return db.scalars(
+    rows = db.scalars(
         select(Template).where(or_(Template.owner_id.is_(None), Template.owner_id == user.id)).order_by(Template.kind, Template.id)
     ).all()
+    if is_admin(user):
+        rows = db.scalars(select(Template).order_by(Template.kind, Template.id)).all()
+    return [t for t in rows if t.owner_id == user.id or (is_admin(user) and scope(t) == "organization") or
+            (t.owner_id is None and t.status == "ready")]
 
 
 def get_visible(db: Session, user: User, template_id: int) -> Template:
     t = db.get(Template, template_id)
-    if not t or (t.owner_id is not None and t.owner_id != user.id):
+    if not t or t not in visible_templates(db, user):
         raise HTTPException(404, "양식을 찾을 수 없습니다.")
     return t
+
+
+def get_editable(db, user, template_id):
+    t = get_visible(db, user, template_id)
+    if t.kind == "builtin":
+        raise HTTPException(400, "기본 양식은 수정할 수 없습니다.")
+    if scope(t) == "organization":
+        require_admin(user)
+        if db.scalar(select(Document.id).where(Document.template_id == t.id).limit(1)):
+            raise HTTPException(409, "작성된 서류가 사용하는 지정 양식입니다. 새 버전으로 업로드하세요.")
+    elif t.owner_id != user.id:
+        raise HTTPException(403, "본인 양식만 수정할 수 있습니다.")
+    return t
+
+
+@router.get("/library-settings")
+def library_settings(user: User = Depends(get_current_user)):
+    return {"is_admin": is_admin(user), "user_id": user.id}
+
+
+@router.get("/sources")
+def library_sources(user: User = Depends(get_current_user)):
+    from app.library_sources import SOURCES
+    return SOURCES
 
 
 @router.get("/standard-fields")
@@ -96,22 +127,30 @@ def standard_fields():
 
 
 @router.get("")
-def list_templates(kind: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    items = [t for t in visible_templates(db, user) if t.status == "ready"]
+def list_templates(kind: str | None = None, include_drafts: bool = False, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    items = [t for t in visible_templates(db, user) if t.status == "ready" or
+             (include_drafts and (t.owner_id == user.id or is_admin(user)) and t.status != "archived")]
     if kind:
         items = [t for t in items if t.kind == kind]
     return [to_out(t) for t in items]
 
 
 @router.get("/search")
-def search(q: str = "", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def search(q: str = "", contract_id: int | None = None, project_code: str = "", client_name: str = "", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if contract_id:
+        contract = db.get(Contract, contract_id)
+        if not contract or contract.user_id != user.id:
+            raise HTTPException(404, "계약을 찾을 수 없습니다.")
+        client_name = contract.client_name
     items = [t for t in visible_templates(db, user) if t.status == "ready"]
+    items = [t for t in items if recommendation(t, client_name, project_code) is not None]
     by_id = {t.id: t for t in items}
     results = ai.search_templates(q, items)
+    results.sort(key=lambda r: (recommendation(by_id[r["template_id"]], client_name, project_code)[0], -r["score"]) if r["template_id"] in by_id else (99, 0))
     return {
         "query": q,
         "ai_enabled": settings.ai_enabled,
-        "results": [{"template": to_out(by_id[r["template_id"]]), "score": r["score"], "ai": r.get("ai", False)} for r in results if r["template_id"] in by_id],
+        "results": [{"template": to_out(by_id[r["template_id"]]), "score": r["score"], "ai": r.get("ai", False), "reason": recommendation(by_id[r["template_id"]], client_name, project_code)[1]} for r in results if r["template_id"] in by_id],
     }
 
 
@@ -173,8 +212,10 @@ def preview_template_pages(template_id: int, user: User = Depends(get_current_us
 
 
 @router.post("/upload")
-async def upload_template(file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def upload_template(file: UploadFile = File(...), organization_library: bool = False, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """기업 자체 양식 업로드 → 구조 분석 → 항목명을 표준 필드로 매핑 (사용자 확인 전 상태)."""
+    if organization_library:
+        require_admin(user)
     ext = Path(file.filename or "").suffix.lower().lstrip(".")
     if ext not in ("docx", "pdf"):
         raise HTTPException(400, "Word(.docx) 또는 PDF 파일만 업로드할 수 있습니다. (.hwp는 Word/PDF로 변환 후 업로드)")
@@ -199,9 +240,9 @@ async def upload_template(file: UploadFile = File(...), user: User = Depends(get
     t = Template(
         owner_id=user.id, kind="uploaded", name=name, category="자체 양식",
         description=f"업로드한 {ext.upper()} 양식 ({analysis.get('title') or name})",
-        definition={"title": analysis.get("title") or name}, fields=fields,
+        definition={"title": analysis.get("title") or name, "library": {"scope": "organization" if organization_library else "private"}}, fields=fields,
         source_path=str(path), source_type=ext, status="analyzing",
-        expires_at=datetime.utcnow() + timedelta(days=settings.UPLOAD_RETENTION_DAYS),
+        expires_at=None if organization_library else datetime.utcnow() + timedelta(days=settings.UPLOAD_RETENTION_DAYS),
     )
     db.add(t)
     if sent["ai_used"]:
@@ -223,9 +264,7 @@ async def upload_template(file: UploadFile = File(...), user: User = Depends(get
 
 @router.put("/{template_id}/mapping")
 def save_mapping(template_id: int, body: TemplateMappingIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = get_visible(db, user, template_id)
-    if t.kind != "uploaded":
-        raise HTTPException(400, "기본 양식은 수정할 수 없습니다.")
+    t = get_editable(db, user, template_id)
     for f in body.fields:
         if f.field_key and f.field_key not in STANDARD_FIELDS:
             raise HTTPException(400, f"알 수 없는 표준 필드: {f.field_key}")
@@ -238,15 +277,78 @@ def save_mapping(template_id: int, body: TemplateMappingIn, user: User = Depends
         t.name = body.name
     if body.category:
         t.category = body.category
-    t.status = "ready"
+    t.status = "review_pending" if scope(t) == "organization" else "ready"
+    if scope(t) == "organization":
+        t.owner_id = user.id
     db.commit()
     return to_out(t)
+
+
+@router.put("/{template_id}/metadata")
+def save_metadata(template_id: int, body: LibraryMetadataIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = get_editable(db, user, template_id)
+    if body.scope == "organization" or scope(t) == "organization":
+        require_admin(user)
+    info = body.model_dump(mode="json")
+    if body.document_type:
+        t.aliases = list(dict.fromkeys([*(t.aliases or []), body.document_type]))
+    t.definition = {**t.definition, "library": info}
+    t.owner_id = user.id
+    t.status = "review_pending" if body.scope == "organization" else "analyzing"
+    t.expires_at = None if body.scope == "organization" else datetime.utcnow() + timedelta(days=settings.UPLOAD_RETENTION_DAYS)
+    db.commit()
+    return to_out(t)
+
+
+@router.post("/{template_id}/publish")
+def publish(template_id: int, body: LibraryPublishIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_admin(user)
+    t = get_editable(db, user, template_id)
+    info = metadata(t)
+    if scope(t) != "organization" or not all(info.get(k) for k in ("organization", "document_type", "source_url", "version", "usage_terms")):
+        raise HTTPException(400, "발주처·서류 종류·출처·버전·이용 조건을 입력하세요.")
+    if not all((body.mapping_checked, body.output_checked, body.rights_checked)) or not info.get("review_note"):
+        raise HTTPException(400, "매핑·출력·이용 조건을 확인하고 검토 메모를 남겨 주세요.")
+    if t.source_type != "docx" or not t.source_path or not Path(t.source_path).is_file():
+        raise HTTPException(400, "지정 양식은 원본 형식을 유지할 수 있는 DOCX 편집용 파일이 필요합니다. PDF는 검토 자료로만 보관합니다.")
+    if not template_keys(t) or any(not f.get("field_key") for f in t.fields):
+        raise HTTPException(400, "입력 칸을 모두 매핑한 뒤 공개하세요.")
+    t.definition = {**t.definition, "library": {**info, "reviewed_at": datetime.utcnow().isoformat(), "reviewer_id": user.id}}
+    t.owner_id, t.status, t.expires_at = None, "ready", None
+    db.add(AuditLog(user_id=user.id, action="template_publish", detail=f"지정 양식 공개: {t.name} / {info['version']}"))
+    db.commit()
+    return to_out(t)
+
+
+@router.get("/{template_id}/review-preview")
+def review_preview(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = get_visible(db, user, template_id)
+    from app.services.documents import build_docx
+    doc = Document(template=t, values=SAMPLE_VALUES)
+    return {"html": renderer.docx_to_html(build_docx(doc))}
+
+
+@router.get("/{template_id}/original")
+def original(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from fastapi.responses import FileResponse
+    t = get_visible(db, user, template_id)
+    if not t.source_path or not Path(t.source_path).is_file():
+        raise HTTPException(404, "보관된 원본이 없습니다.")
+    return FileResponse(t.source_path, filename=f"{t.name}.{t.source_type}")
+
+
+@router.get("/{template_id}/sample-file")
+def sample_file(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.services.documents import build_docx
+    t = get_visible(db, user, template_id)
+    doc = Document(template=t, values=SAMPLE_VALUES)
+    return Response(renderer.docx_bytes(build_docx(doc)), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": 'attachment; filename="sample.docx"'})
 
 
 @router.delete("/{template_id}")
 def delete_template(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """자체 양식 삭제 (원본 파일 즉시 삭제 — 3주차 보안 ⑤자동 삭제/사용자 요청 삭제)."""
-    t = get_visible(db, user, template_id)
+    t = get_editable(db, user, template_id)
     if t.kind != "uploaded":
         raise HTTPException(400, "기본 양식은 삭제할 수 없습니다.")
     if db.scalar(select(Document.id).where(Document.template_id == t.id).limit(1)):

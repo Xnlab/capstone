@@ -8,6 +8,7 @@ load_dotenv(BASE_DIR / ".env")
 
 
 class Settings:
+    LIBRARY_ADMIN_EMAILS = {s.strip().lower() for s in os.getenv("LIBRARY_ADMIN_EMAILS", "").split(",") if s.strip()}
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-only-secret-key-change-me-in-production")
     ACCESS_TOKEN_HOURS: int = int(os.getenv("ACCESS_TOKEN_HOURS", "24"))
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{(BASE_DIR / 'storage' / 'app.db').as_posix()}")

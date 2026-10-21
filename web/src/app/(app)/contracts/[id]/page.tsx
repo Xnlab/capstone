@@ -35,10 +35,10 @@ export default function ContractWorkspace() {
     loadDocs();
   }, [cid, loadDocs]);
 
-  const addDocument = async (templateId: number) => {
+  const addDocument = async (templateId: number, projectCode = "") => {
     setError("");
     try {
-      await api.post(`/contracts/${cid}/documents`, { template_id: templateId });
+      await api.post(`/contracts/${cid}/documents`, { template_id: templateId, project_code: projectCode });
       setResult(null);
       await loadDocs();
     } catch (e) {
@@ -166,7 +166,7 @@ export default function ContractWorkspace() {
         </div>
 
         <div className="space-y-5">
-          <AddDocumentPanel contractId={cid} onAdd={addDocument} />
+          <AddDocumentPanel contractId={cid} clientName={contract.client_name} onAdd={addDocument} />
 
           <Card>
             <CardHeader title="검토 · 제출" />
