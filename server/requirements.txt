@@ -10,4 +10,5 @@ openpyxl
 pypdf
 reportlab
 PyMuPDF
+Pillow>=10
 openai

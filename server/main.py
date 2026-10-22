@@ -38,6 +38,18 @@ def ensure_company_columns():
         for name, sql_type in columns.items():
             if name not in existing:
                 connection.execute(text(f"ALTER TABLE companies ADD COLUMN {name} {sql_type} NOT NULL DEFAULT ''"))
+        if "seal_image" not in existing:
+            connection.execute(text("ALTER TABLE companies ADD COLUMN seal_image TEXT NOT NULL DEFAULT ''"))
+        if "seal_size_mm" not in existing:
+            connection.execute(text("ALTER TABLE companies ADD COLUMN seal_size_mm FLOAT NOT NULL DEFAULT 20"))
+
+
+def ensure_contract_columns():
+    """Preserve existing contracts; an unknown signing date stays empty."""
+    existing = {column["name"] for column in inspect(engine).get_columns("contracts")}
+    if "contract_date" not in existing:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE contracts ADD COLUMN contract_date DATE"))
 
 
 def seed_builtin_templates(db: Session):
@@ -62,6 +74,8 @@ def purge_expired_uploads(db: Session) -> int:
     rows = db.scalars(select(Template).where(Template.kind == "uploaded", Template.expires_at < datetime.utcnow(), Template.source_path.is_not(None))).all()
     for t in rows:
         Path(t.source_path).unlink(missing_ok=True)
+        if t.source_type == 'hwp':
+            Path(t.source_path).with_suffix('.hwpx').unlink(missing_ok=True)
         db.add(AuditLog(user_id=t.owner_id, action="file_purge", detail=f"보관기간 경과로 '{t.name}' 원본 삭제"))
         t.source_path = None
     db.commit()
@@ -72,6 +86,7 @@ def purge_expired_uploads(db: Session) -> int:
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(engine)
     ensure_company_columns()
+    ensure_contract_columns()
     with SessionLocal() as db:
         seed_builtin_templates(db)
         n = purge_expired_uploads(db)

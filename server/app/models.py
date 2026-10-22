@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -37,6 +37,8 @@ class Company(Base):
     bank_name: Mapped[str] = mapped_column(String(50), default="")
     account_number: Mapped[str] = mapped_column(String(50), default="")
     account_holder: Mapped[str] = mapped_column(String(100), default="")
+    seal_image: Mapped[str] = mapped_column(Text, default="")  # Normalized PNG data URI, owner-only.
+    seal_size_mm: Mapped[float] = mapped_column(Float, default=20)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user: Mapped[User] = relationship(back_populates="company")
@@ -50,12 +52,14 @@ class Contract(Base):
     contract_title: Mapped[str] = mapped_column(String(200))
     client_name: Mapped[str] = mapped_column(String(100), default="")  # 발주처
     amount: Mapped[int] = mapped_column(Integer, default=0)  # 계약금액(부가세 포함, 원)
+    contract_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     description: Mapped[str] = mapped_column(Text, default="")  # 업무내용
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="contract", cascade="all, delete-orphan")
+    user: Mapped[User] = relationship()
 
 
 class Template(Base):
@@ -76,7 +80,7 @@ class Template(Base):
     # [{label, field_key, location, confidence}]
     fields: Mapped[list] = mapped_column(JSON, default=list)
     source_path: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    source_type: Mapped[str | None] = mapped_column(String(10), nullable=True)  # docx | pdf
+    source_type: Mapped[str | None] = mapped_column(String(10), nullable=True)  # docx | pdf | hwp | hwpx
     status: Mapped[str] = mapped_column(String(20), default="ready")  # analyzing | ready
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

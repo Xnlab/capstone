@@ -6,7 +6,7 @@ import { useQueryParam } from "@/lib/hooks";
 import type { Company } from "@/lib/types";
 import { Button, Card, CardHeader, ErrorText, Field, Input, Loading, PageHeader } from "@/components/ui";
 
-const FIELDS: { key: keyof Company; label: string; placeholder: string; required?: boolean; hint?: string }[] = [
+const FIELDS: { key: Exclude<keyof Company, "seal_image" | "seal_size_mm">; label: string; placeholder: string; required?: boolean; hint?: string }[] = [
   { key: "company_name", label: "회사명(상호)", placeholder: "(주)마코", required: true },
   { key: "representative", label: "대표자명", placeholder: "홍길동", required: true },
   { key: "business_number", label: "사업자등록번호", placeholder: "123-45-67890", required: true, hint: "000-00-00000 형식" },
@@ -26,10 +26,16 @@ export default function CompanyPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sealBusy, setSealBusy] = useState(false);
+  const [sealError, setSealError] = useState("");
+  const [sealSize, setSealSize] = useState(20);
   const welcome = useQueryParam("welcome") !== null;
 
   useEffect(() => {
-    api.get<Company>("/company").then(setForm);
+    api.get<Company>("/company").then((company) => {
+      setForm(company);
+      setSealSize(company.seal_size_mm);
+    });
   }, []);
 
   const submit = async (e: FormEvent) => {
@@ -45,6 +51,20 @@ export default function CompanyPage() {
       setError((err as Error).message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const updateSeal = async (action: () => Promise<Company>) => {
+    setSealBusy(true);
+    setSealError("");
+    try {
+      const company = await action();
+      setForm((previous) => previous && { ...previous, seal_image: company.seal_image, seal_size_mm: company.seal_size_mm });
+      setSealSize(company.seal_size_mm);
+    } catch (err) {
+      setSealError((err as Error).message);
+    } finally {
+      setSealBusy(false);
     }
   };
 
@@ -77,6 +97,44 @@ export default function CompanyPage() {
           </div>
         </Card>
       </form>
+      <Card className="mt-5">
+        <CardHeader title="회사 도장" desc="등록한 도장을 기본 서류의 대표자 (인) 위치에 자동으로 넣습니다. 이미 작성한 서류에도 적용됩니다." />
+        <div className="grid gap-6 p-5 sm:grid-cols-[1fr_260px]">
+          <div className="space-y-4">
+            <Field label="도장 이미지" hint="PNG·JPEG, 최대 3MB. 여백이 적은 투명 PNG를 권장합니다.">
+              <Input type="file" accept="image/png,image/jpeg" disabled={sealBusy} onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void updateSeal(() => api.upload<Company>("/company/seal", file));
+              }} />
+            </Field>
+            <Field label="도장 크기" hint="가장 긴 변 기준 10~30mm. 원본 비율은 유지됩니다.">
+              <div className="flex items-center gap-3">
+                <Input type="number" min={10} max={30} step={1} value={sealSize} disabled={sealBusy} className="max-w-24" onChange={(e) => setSealSize(Number(e.target.value))} />
+                <span className="text-sm text-muted">mm</span>
+                <Button variant="secondary" disabled={!form.seal_image || sealBusy || !Number.isFinite(sealSize) || sealSize < 10 || sealSize > 30} onClick={() => updateSeal(() => api.put<Company>("/company/seal", { size_mm: sealSize }))}>크기 저장</Button>
+              </div>
+            </Field>
+            {form.seal_image && <Button variant="secondary" disabled={sealBusy} onClick={() => updateSeal(() => api.del<Company>("/company/seal"))}>도장 등록 해제</Button>}
+            {sealBusy && <p className="text-sm text-muted" role="status">도장을 저장하고 있습니다…</p>}
+            <ErrorText>{sealError}</ErrorText>
+          </div>
+          <div className="rounded-lg border border-line bg-slate-50 p-4">
+            <div className="mb-4 text-xs text-muted">날인 배치 미리보기</div>
+            <div className="flex min-h-32 items-center justify-end gap-3 rounded bg-white px-3">
+              <span className="text-sm">대표자 : {form.representative || "대표자명"}</span>
+              <span className="relative flex shrink-0 items-center justify-center" style={{ width: `${Math.min(30, Math.max(10, sealSize || 20))}mm`, height: `${Math.min(30, Math.max(10, sealSize || 20))}mm` }}>
+                {form.seal_image && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={form.seal_image} alt="등록한 회사 도장" className="absolute inset-0 h-full w-full object-contain" />
+                )}
+                <span className="relative z-10 text-sm">(인)</span>
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-muted">도장은 글자 뒤에 겹쳐 표시됩니다.</p>
+          </div>
+        </div>
+      </Card>
     </>
   );
 }

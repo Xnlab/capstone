@@ -51,6 +51,12 @@ class CompanyIn(BaseModel):
 class CompanyOut(CompanyIn, ORM):
     id: int
     updated_at: datetime
+    seal_image: str = ""
+    seal_size_mm: float = 20
+
+
+class SealSizeIn(BaseModel):
+    size_mm: float = Field(ge=10, le=30)
 
 
 # ---------- contract
@@ -58,6 +64,7 @@ class ContractIn(BaseModel):
     contract_title: str = Field(min_length=1, max_length=200)
     client_name: str = ""
     amount: int = Field(default=0, ge=0)
+    contract_date: date | None = None
     start_date: date | None = None
     end_date: date | None = None
     description: str = ""

@@ -8,6 +8,10 @@ from datetime import date
 
 # key: (한글명, 그룹, 동의어 목록)
 STANDARD_FIELDS: dict[str, dict] = {
+    "staff_plan": {"label": "참여인력 및 역할", "group": "document", "synonyms": ["참여인력", "업무분장"]},
+    "deliverables": {"label": "제출 산출물 및 납품 일정", "group": "document", "synonyms": ["성과품", "납품목록"]},
+    "quality_plan": {"label": "품질·보안 및 보고 계획", "group": "document", "synonyms": ["품질관리계획", "보고계획"]},
+    "attachment_list": {"label": "첨부서류 목록", "group": "document", "synonyms": ["붙임", "첨부목록"]},
     # 회사 정보
     "company_name": {"label": "회사명", "group": "company", "synonyms": ["상호", "업체명", "회사명", "법인명", "수급인", "계약상대자", "용역업체", "공급자 상호", "사업자명"]},
     "representative": {"label": "대표자명", "group": "company", "synonyms": ["대표자", "대표이사", "대표자 성명", "대표", "성명(대표자)"]},
@@ -57,9 +61,9 @@ STANDARD_FIELDS: dict[str, dict] = {
 }
 
 MONEY_FIELDS = {"amount", "supply_amount", "vat", "advance_amount", "payment_amount"}
-DATE_FIELDS = {"start_date", "end_date", "submit_date"}
+DATE_FIELDS = {"contract_date", "start_date", "end_date", "submit_date"}
 # 교차 검증 대상: 여러 서류에 반복 등장하므로 값이 모두 같아야 하는 필드
-CONSISTENCY_FIELDS = ["company_name", "representative", "business_number", "contract_title", "client_name", "amount", "period", "start_date", "end_date"]
+CONSISTENCY_FIELDS = ["company_name", "representative", "business_number", "contract_title", "client_name", "amount", "period", "contract_date", "start_date", "end_date"]
 
 
 def field_label(key: str) -> str:
@@ -132,7 +136,7 @@ def base_values(company, contract) -> dict:
         "period": f"{fmt_date(contract.start_date)} ~ {fmt_date(contract.end_date)}" if contract.start_date and contract.end_date else "",
         "description": contract.description or "",
         "submit_date": fmt_date(date.today()),
-        "contract_date": "",
+        "contract_date": fmt_date(contract.contract_date),
         "contract_number": "",
         "document_number": "",
         "advance_amount": "",

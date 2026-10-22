@@ -106,8 +106,9 @@ export default function ContractWorkspace() {
       />
 
       <Card className="mb-5">
-        <div className="grid gap-4 px-5 py-4 sm:grid-cols-3">
+        <div className="grid gap-4 px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
           <Info label="계약금액" value={contract.amount ? won(contract.amount) : "-"} />
+          <Info label="계약일자" value={fmtDate(contract.contract_date)} />
           <Info label="착수일" value={fmtDate(contract.start_date)} />
           <Info label="완료일" value={fmtDate(contract.end_date)} />
         </div>
@@ -204,11 +205,12 @@ export default function ContractWorkspace() {
           submitLabel="저장"
           onSubmit={async (v) => {
             setContract(await api.put<Contract>(`/contracts/${cid}`, v));
+            await loadDocs();
             setEditOpen(false);
             setResult(null);
           }}
         />
-        <p className="mt-3 text-xs text-muted">이미 작성한 서류에는 자동 반영되지 않습니다. 서류 편집 화면의 ‘정보 다시 적용’을 사용하세요.</p>
+        <p className="mt-3 text-xs text-muted">저장하면 기존 서류의 빈 항목과 자동 입력된 계약정보도 갱신됩니다. 서류에서 직접 수정한 값은 유지됩니다.</p>
       </Modal>
 
       {mailOpen && <MailModal onClose={() => setMailOpen(false)} contractId={cid} docs={docs} />}

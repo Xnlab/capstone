@@ -88,14 +88,19 @@ BUILTIN_TEMPLATES: list[dict] = [
         "aliases": ["수행계획서", "사업수행계획서", "과업 수행 계획서", "작업계획서"],
         "definition": definition(
             "과 업 수 행 계 획 서",
-            ["contract_title", "client_name", "company_name", "period", "manager_name", "description", "work_summary", "work_method", "work_schedule", "submit_date", "representative", "address"],
+            ["contract_title", "client_name", "company_name", "period", "manager_name", "description", "work_summary", "work_method", "work_schedule", "staff_plan", "deliverables", "quality_plan", "submit_date", "representative", "address"],
             [
                 info(("계 약 명", "contract_title"), ("발 주 처", "client_name"), ("수행업체", "company_name"), ("수행기간", "period"), ("책 임 자", "manager_name")),
                 field_block("1. 과업 목적 및 개요", "work_summary"), field_block("2. 주요 과업 내용", "description"),
                 field_block("3. 수행 방법", "work_method"), field_block("4. 추진 일정", "work_schedule"),
+                {"type": "page_break", "title": "과업 수행 및 관리계획"},
+                info(("계 약 명", "contract_title"), ("수행기간", "period")),
+                field_block("5. 참여인력 및 역할", "staff_plan"),
+                field_block("6. 제출 산출물 및 납품 일정", "deliverables"),
+                field_block("7. 품질·보안 및 보고 계획", "quality_plan"),
                 paragraph("상기와 같이 과업수행계획서를 제출합니다."),
             ],
-            ["contract_title", "client_name", "company_name", "period", "description", "work_method", "work_schedule"], recipient="{client_name} 귀하",
+            ["contract_title", "client_name", "company_name", "period", "description", "work_method", "work_schedule", "manager_name", "staff_plan", "deliverables", "quality_plan"], recipient="{client_name} 귀하",
         ),
     },
     {
@@ -185,6 +190,37 @@ BUILTIN_TEMPLATES: list[dict] = [
 
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
+
+
+# Public-sector submission structure: primary declarations and supporting detail
+# are separate pages; attachments remain editable for the specific invitation.
+for template in BUILTIN_TEMPLATES:
+    form = template["definition"]
+    if form.get("signature"):
+        for key in ("submit_date", "address", "client_name"):
+            if key not in form["fields"]:
+                form["fields"].append(key)
+            if key not in form["required"]:
+                form["required"].append(key)
+    for section in form["sections"]:
+        if section["type"] in ("info", "bank"):
+            for row in section["rows"]:
+                if row[1] in ("amount", "amount_korean"):
+                    row[1] = "contract_amount_display"
+                elif row[1] == "payment_amount_korean":
+                    row[1] = "claim_amount_display"
+                elif row[1] == "advance_amount":
+                    row[1] = "advance_amount_display"
+        if section["type"] == "attachments" and "attachment_list" not in form["fields"]:
+            form["fields"].append("attachment_list")
+    if template["key"] == "completion":
+        header, details, items, declaration = form["sections"]
+        form["sections"] = [header, declaration, {"type": "signature"},
+                            {"type": "page_break", "title": "완 료 내 역 서"},
+                            info(("계약명", "contract_title"), ("계약금액", "contract_amount_display")), details, items]
+    if template["key"] in ("commencement", "completion", "advance_request"):
+        if "contract_date" not in form["required"]:
+            form["required"].append("contract_date")
 
 
 def template_field_keys(definition: dict) -> list[str]:

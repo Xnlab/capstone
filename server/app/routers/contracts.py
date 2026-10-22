@@ -14,7 +14,7 @@ from app.routers.company import get_or_create_company
 from app.routers.templates import get_visible
 from app.schemas import ContractIn, DocumentCreate, MailIn
 from app.services import ai, renderer
-from app.services.documents import auto_values, build_docx, build_native, safe_filename, to_out
+from app.services.documents import auto_values, build_docx, build_native, build_pdf, safe_filename, sync_contract_values, to_out
 from app.services.mailer import send_mail
 from app.services.library import recommendation, scope
 from app.services.validator import validate
@@ -34,7 +34,7 @@ def get_owned(db: Session, user: User, contract_id: int) -> Contract:
 def contract_out(c: Contract, count: int | None = None) -> dict:
     return {
         "id": c.id, "contract_title": c.contract_title, "client_name": c.client_name, "amount": c.amount,
-        "start_date": c.start_date, "end_date": c.end_date, "description": c.description,
+        "contract_date": c.contract_date, "start_date": c.start_date, "end_date": c.end_date, "description": c.description,
         "created_at": c.created_at, "document_count": len(c.documents) if count is None else count,
     }
 
@@ -71,8 +71,13 @@ def update_contract(contract_id: int, body: ContractIn, user: User = Depends(get
     c = get_owned(db, user, contract_id)
     if body.start_date and body.end_date and body.start_date > body.end_date:
         raise HTTPException(400, "착수일이 완료일보다 늦을 수 없습니다.")
+    company = user.company
+    previous = base_values(company, c)
     for k, v in body.model_dump().items():
         setattr(c, k, v)
+    current = base_values(company, c)
+    for document in c.documents:
+        sync_contract_values(document, previous, current)
     db.commit()
     return contract_out(c)
 
@@ -137,8 +142,7 @@ def _render_files(docs: list[Document], fmt: str) -> list[tuple[str, bytes, str]
             data, ext, media = build_native(d)
             files.append((f"{name}.{ext}", data, media.split("/", 1)[1]))
         if fmt in ("pdf", "both"):
-            docx = build_docx(d)
-            files.append((f"{name}.pdf", renderer.docx_to_pdf_bytes(docx), "pdf"))
+            files.append((f"{name}.pdf", build_pdf(d), "pdf"))
     return files
 
 
