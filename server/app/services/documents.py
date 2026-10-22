@@ -30,6 +30,10 @@ def auto_values(db: Session, user_id: int, t: Template, company: Company | None,
     base = base_values(company, contract)
     keys = template_keys(t)
     values = {k: base.get(k, "") for k in keys}
+    if "attachment_list" in keys:
+        values["attachment_list"] = "\n".join(item for section in t.definition.get("sections", [])
+                                               if section.get("type") == "attachments"
+                                               for item in section.get("items", []))
     if "work_summary" in keys:
         text, used = ai.generate_work_summary(base)
         values["work_summary"] = text
@@ -38,15 +42,41 @@ def auto_values(db: Session, user_id: int, t: Template, company: Company | None,
     return values
 
 
+def sync_contract_values(doc: Document, previous: dict, current: dict) -> bool:
+    """Refresh contract-derived values while retaining document-specific edits."""
+    related = {
+        "contract_title", "client_name", "amount", "amount_korean", "supply_amount", "vat",
+        "contract_date", "start_date", "end_date", "period", "description",
+        "payment_amount", "payment_amount_korean", "usage_purpose", "quote_items",
+        "detail_items", "completion_details", "activity_topic", "activity_details",
+    }
+    values = dict(doc.values or {})
+    changed = False
+    for key in related.intersection(template_keys(doc.template)):
+        existing = values.get(key, "")
+        if not str(existing or "").strip() or existing == previous.get(key, ""):
+            value = current.get(key, "")
+            if existing != value:
+                values[key] = value
+                changed = True
+    if changed:
+        doc.values = values
+        doc.status = "draft"
+    return changed
+
+
 def build_docx(doc: Document):
     t = doc.template
     if positioned(t):
         from fastapi import HTTPException
         raise HTTPException(400, "원본 PDF 지정 양식은 PDF 형식으로 출력하세요.")
     if t.kind == "builtin":
-        return renderer.render_builtin_docx(t.definition, doc.values)
+        return renderer.render_builtin_docx(t.definition, doc.values, seal=document_seal(doc))
     if t.source_type == "docx" and t.source_path and Path(t.source_path).exists():
         return renderer.fill_uploaded_docx(Path(t.source_path), t.fields, doc.values)
+    if t.source_type in ('hwp', 'hwpx'):
+        from app.services.hwpx_forms import editable_path, project_docx
+        return project_docx(editable_path(t), t.fields, doc.values)
     # PDF 양식 또는 원본이 보관기간 경과로 삭제된 경우 → 항목 기반 재구성
     return renderer.rebuild_from_pdf_fields(t.name, t.fields, doc.values)
 
@@ -57,6 +87,8 @@ def output_format(t: Template) -> str:
         return "pdf"
     if t.kind == "builtin":
         return t.definition.get("output_format", "hwpx")
+    if t.source_type in ('hwp', 'hwpx'):
+        return 'hwpx'
     return "docx"
 
 
@@ -65,7 +97,14 @@ def build_native(doc: Document) -> tuple[bytes, str, str]:
     if positioned(doc.template):
         return fill_pdf(doc.template, doc.values), "pdf", "application/pdf"
     if doc.template.kind == "builtin" and doc.template.definition.get("sections"):
-        return render_native(doc.template.definition, doc.values)
+        return render_native(doc.template.definition, doc.values, seal=document_seal(doc))
+    if doc.template.source_type in ('hwp', 'hwpx'):
+        from app.services.hwpx_forms import editable_path, fill
+        try:
+            return fill(editable_path(doc.template), doc.template.fields, doc.values), 'hwpx', 'application/hwp+zip'
+        except ValueError as error:
+            from fastapi import HTTPException
+            raise HTTPException(422, str(error))
     return (
         renderer.docx_bytes(build_docx(doc)),
         "docx",
@@ -73,9 +112,17 @@ def build_native(doc: Document) -> tuple[bytes, str, str]:
     )
 
 
+def document_seal(doc: Document):
+    from app.services.seal import company_seal
+    return company_seal(doc.contract.user.company) if doc.contract else None
+
+
 def build_pdf(doc: Document) -> bytes:
     if positioned(doc.template):
         return fill_pdf(doc.template, doc.values)
+    if doc.template.source_type in ('hwp', 'hwpx'):
+        from app.services.hancom import pdf_bytes
+        return pdf_bytes(build_native(doc)[0])
     return renderer.docx_to_pdf_bytes(build_docx(doc))
 
 

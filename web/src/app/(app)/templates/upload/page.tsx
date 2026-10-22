@@ -122,15 +122,16 @@ export default function UploadTemplatePage() {
               </>
             ) : (
               <>
-                <p className="text-lg font-semibold">Word(.docx) 또는 PDF 양식을 끌어다 놓으세요</p>
-                <p className="mt-1 text-sm text-muted">한글(.hwp)은 Word/PDF로 저장한 뒤 올려주세요 · 최대 10MB</p>
+                <p className="text-lg font-semibold">한글·Word·PDF 양식을 끌어다 놓으세요</p>
+                <p className="mt-1 text-sm text-muted">HWP · HWPX · DOCX · PDF, 최대 10MB</p>
+                <p className="mt-2 max-w-lg text-xs text-muted">한글·Word는 원본 양식의 입력 칸을 채웁니다. HWP는 HWPX로 변환해 작성하며, PDF는 항목 기반 Word로 재구성됩니다.</p>
                 <Button className="mt-5" onClick={() => inputRef.current?.click()}>
                   파일 선택
                 </Button>
                 <input
                   ref={inputRef}
                   type="file"
-                  accept=".docx,.pdf"
+                  accept=".hwp,.hwpx,.docx,.pdf"
                   hidden
                   onChange={(e) => {
                     const f = e.target.files?.[0];
@@ -166,6 +167,7 @@ export default function UploadTemplatePage() {
               action={<Badge tone="indigo">{analysis.title || template.name}</Badge>}
             />
             <MappingEditor fields={fields} standard={standard} onChange={setFields} />
+            {fields.length === 0 && <p className="px-5 pb-5 text-sm text-amber-700">자동으로 찾은 입력 칸이 없습니다. 항목명 오른쪽에 빈 셀을 두거나, 문단에 ‘계약명 : ____’ 또는 ‘&#123;&#123;contract_title&#125;&#125;’ 표시자를 넣은 뒤 다시 업로드하세요.</p>}
           </Card>
 
           <Card className="flex flex-wrap items-end justify-between gap-4 p-5">

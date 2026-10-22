@@ -1,10 +1,10 @@
 import uuid
-import base64
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -59,6 +59,9 @@ SAMPLE_VALUES = {
     "work_summary": "지역문화 행사 정보를 쉽게 확인하고 운영자가 직접 관리할 수 있는 웹서비스를 구축합니다.",
     "work_method": "1. 요구사항을 확정합니다.\n2. 설계와 개발을 단계별로 수행합니다.\n3. 검수 의견을 반영합니다.",
     "work_schedule": "요구사항 분석 → 화면설계 → 개발 → 통합시험 → 검수",
+    "staff_plan": "박담당 / 사업책임자 / 일정·품질·대외협의 총괄\n이개발 / 개발담당 / 서비스 구현 및 시험\n최디자인 / 디자인담당 / 화면설계 및 접근성 점검",
+    "deliverables": "요구사항 정의서 1부 / 착수 후 2주 / 전자파일\n화면설계서 1부 / 설계 완료 시 / 전자파일\n소스코드·시험결과서·운영자 매뉴얼 각 1식 / 최종 납품 시",
+    "quality_plan": "주간 진행현황과 쟁점사항을 발주처에 보고합니다.\n요구사항별 시험결과와 수정 이력을 관리하고 납품 전 확인합니다.\n자료 접근권한을 제한하고 과업 종료 시 계약조건에 따라 자료를 반납·파기합니다.",
     "activity_date": "2026. 10. 14.",
     "activity_time": "14:00 ~ 16:00",
     "activity_place": "샘플문화재단 회의실",
@@ -237,23 +240,15 @@ def preview_template_file(template_id: int, user: User = Depends(get_current_use
 @router.get("/{template_id}/preview-pages")
 def preview_template_pages(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Render every A4 preview page to PNG for browsers without an embedded PDF viewer."""
-    import pymupdf
-
     t = get_visible(db, user, template_id)
     if t.kind != "builtin":
         raise HTTPException(400, "서비스 기본 양식만 샘플 미리보기를 지원합니다.")
     docx = renderer.render_builtin_docx(t.definition, SAMPLE_VALUES)
     pdf = renderer.docx_to_pdf_bytes(docx)
-    pages = []
-    with pymupdf.open(stream=pdf, filetype="pdf") as document:
-        for page in document:
-            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(1.6, 1.6), alpha=False)
-            encoded = base64.b64encode(pixmap.tobytes("png")).decode("ascii")
-            pages.append({"data": f"data:image/png;base64,{encoded}", "width": pixmap.width, "height": pixmap.height})
     return {
         "title": t.name,
         "output_format": t.definition.get("output_format", "hwpx"),
-        "pages": pages,
+        "pages": renderer.pdf_preview_pages(pdf),
     }
 
 
@@ -263,9 +258,9 @@ async def upload_template(file: UploadFile = File(...), organization_library: bo
     if organization_library:
         require_admin(user)
     ext = Path(file.filename or "").suffix.lower().lstrip(".")
-    if ext not in ("docx", "pdf"):
-        raise HTTPException(400, "Word(.docx) 또는 PDF 파일만 업로드할 수 있습니다. (.hwp는 Word/PDF로 변환 후 업로드)")
-    data = await file.read()
+    if ext not in ("docx", "pdf", "hwp", "hwpx"):
+        raise HTTPException(400, "한글(.hwp, .hwpx), Word(.docx), PDF 파일을 업로드하세요.")
+    data = await file.read(settings.MAX_UPLOAD_MB * 1024 * 1024 + 1)
     if len(data) > settings.MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(400, f"파일은 {settings.MAX_UPLOAD_MB}MB 이하여야 합니다.")
 
@@ -275,9 +270,23 @@ async def upload_template(file: UploadFile = File(...), organization_library: bo
     path.write_bytes(data)
 
     try:
-        analysis = form_parser.analyze(path, ext)
+        analysis_path, analysis_type = path, ext
+        if ext == 'hwp':
+            if not data.startswith(bytes.fromhex('D0CF11E0A1B11AE1')):
+                raise ValueError('HWP 파일 형식이 아닙니다. 한글에서 HWP 또는 HWPX로 저장한 파일을 올려주세요.')
+            from app.services.hancom import convert
+            analysis_path, analysis_type = path.with_suffix('.hwpx'), 'hwpx'
+            await run_in_threadpool(convert, path, analysis_path, 'HWPX')
+        analysis = form_parser.analyze(analysis_path, analysis_type)
+    except HTTPException:
+        path.unlink(missing_ok=True)
+        if ext == 'hwp':
+            path.with_suffix('.hwpx').unlink(missing_ok=True)
+        raise
     except Exception as e:
         path.unlink(missing_ok=True)
+        if ext == 'hwp':
+            path.with_suffix('.hwpx').unlink(missing_ok=True)
         raise HTTPException(400, f"양식을 분석하지 못했습니다: {e}")
 
     mapped, sent = ai.map_labels(analysis["items"])
@@ -358,8 +367,8 @@ def publish(template_id: int, body: LibraryPublishIn, user: User = Depends(get_c
         raise HTTPException(400, "발주처·서류 종류·출처·버전·이용 조건을 입력하세요.")
     if not all((body.mapping_checked, body.output_checked, body.rights_checked)) or not info.get("review_note"):
         raise HTTPException(400, "매핑·출력·이용 조건을 확인하고 검토 메모를 남겨 주세요.")
-    if not t.source_path or not Path(t.source_path).is_file() or (t.source_type != "docx" and not positioned(t)):
-        raise HTTPException(400, "지정 양식은 DOCX 또는 입력 위치를 검토한 PDF가 필요합니다.")
+    if not t.source_path or not Path(t.source_path).is_file() or (t.source_type not in ('docx', 'hwp', 'hwpx') and not positioned(t)):
+        raise HTTPException(400, "지정 양식은 DOCX·HWP·HWPX 또는 입력 위치를 검토한 PDF가 필요합니다.")
     if positioned(t):
         validate_locations(t)
     if not template_keys(t) or any(not f.get("field_key") for f in t.fields):
@@ -393,8 +402,15 @@ def sample_file(template_id: int, user: User = Depends(get_current_user), db: Se
     from app.services.documents import build_native
     t = get_visible(db, user, template_id)
     doc = Document(template=t, values=SAMPLE_VALUES)
-    data, ext, media = build_native(doc)
-    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="sample.{ext}"'})
+    data, extension, media = build_native(doc)
+    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="sample.{extension}"'})
+
+
+@router.get('/{template_id}/review-preview-pages')
+def review_preview_pages(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.services.documents import build_pdf
+    template = get_visible(db, user, template_id)
+    return {'pages': renderer.pdf_preview_pages(build_pdf(Document(template=template, values=SAMPLE_VALUES)))}
 
 
 @router.delete("/{template_id}")
@@ -407,6 +423,8 @@ def delete_template(template_id: int, user: User = Depends(get_current_user), db
         raise HTTPException(409, "이 양식으로 작성된 서류가 있어 삭제할 수 없습니다. 서류를 먼저 삭제하세요.")
     if t.source_path:
         Path(t.source_path).unlink(missing_ok=True)
+        if t.source_type == 'hwp':
+            Path(t.source_path).with_suffix('.hwpx').unlink(missing_ok=True)
     from sqlalchemy import delete
     db.execute(delete(TemplateFavorite).where(TemplateFavorite.template_id == t.id))
     db.add(AuditLog(user_id=user.id, action="file_delete", detail=f"자체 양식 '{t.name}' 삭제(사용자 요청)"))

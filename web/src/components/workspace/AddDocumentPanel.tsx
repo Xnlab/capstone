@@ -121,7 +121,7 @@ export default function AddDocumentPanel({ contractId, clientName, onAdd }: { co
         {tab === "upload" && (
           <>
             <div className="rounded-lg border border-dashed border-line bg-gray-50 p-4 text-center">
-              <p className="text-sm">기업이 보내준 Word/PDF 양식을 올리면 AI가 항목을 분석해 자동으로 채웁니다.</p>
+              <p className="text-sm">기업이 보내준 한글·Word·PDF 양식을 올리면 입력 항목을 분석해 자동으로 채웁니다.</p>
               <Link
                 href={`/templates/upload?contract=${contractId}`}
                 className="mt-3 inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-indigo-700"

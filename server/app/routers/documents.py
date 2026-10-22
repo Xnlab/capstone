@@ -80,6 +80,13 @@ def preview(document_id: int, user: User = Depends(get_current_user), db: Sessio
     return {"html": preview_html(d)}
 
 
+@router.get("/{document_id}/preview-pages")
+def preview_pages(document_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    d = get_owned_doc(db, user, document_id)
+    pdf = build_pdf(d)
+    return {"pages": renderer.pdf_preview_pages(pdf)}
+
+
 @router.get("/{document_id}/download")
 def download(document_id: int, format: str = "native", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     d = get_owned_doc(db, user, document_id)

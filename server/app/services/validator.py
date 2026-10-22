@@ -80,6 +80,19 @@ def validate(documents: list, master: dict) -> dict:
             issues.append(_issue("warning", "형식", "계약기간은 '시작일 ~ 종료일' 형식이어야 합니다.", [d], "period"))
 
         amt = _money(v.get("amount"))
+        for key in ("advance_amount", "payment_amount"):
+            claimed = _money(v.get(key))
+            if key in keys and claimed is not None and amt is not None and claimed > amt:
+                issues.append(_issue("error", "청구금액", "신청·청구금액이 계약금액을 초과합니다.", [d], key))
+        for key in ("quote_items", "detail_items"):
+            if key in keys and v.get(key):
+                from app.services.professional_renderer import parse_items, item_amounts
+                items = parse_items(v[key], "", 0)
+                total = sum(sum(item_amounts(i)) for i in items)
+                if amt is not None and total != amt:
+                    issues.append(_issue("error", "내역 합계", f"품목별 금액 합계({total:,}원)가 계약금액({amt:,}원)과 다릅니다.", [d], key))
+        if d.template.kind == "builtin":
+            issues.append(_issue("warning", "제출 확인", "발주기관 지정 서식·첨부서류·대표자 날인 여부를 확인하세요. 미리보기는 PDF 배치 기준이며 HWPX는 한글에서 최종 확인하세요.", [d]))
         sup, vat = _money(v.get("supply_amount")), _money(v.get("vat"))
         if amt and sup is not None and vat is not None and "supply_amount" in keys and sup + vat != amt:
             issues.append(_issue("error", "금액 계산", f"공급가액({sup:,}) + 부가세({vat:,}) ≠ 합계({amt:,})", [d], "amount"))

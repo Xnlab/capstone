@@ -1,6 +1,8 @@
 export type User = { id: number; email: string; name: string };
 
 export type Company = {
+  seal_image: string;
+  seal_size_mm: number;
   company_name: string;
   representative: string;
   business_number: string;
@@ -20,6 +22,7 @@ export type Contract = {
   contract_title: string;
   client_name: string;
   amount: number;
+  contract_date: string | null;
   start_date: string | null;
   end_date: string | null;
   description: string;
@@ -27,7 +30,7 @@ export type Contract = {
   document_count: number;
 };
 
-export type FieldLocation = { type: "cell" | "para" | "pdf_line" | "pdf_rect"; [k: string]: unknown };
+export type FieldLocation = { type: "cell" | "para" | "pdf_line" | "pdf_rect" | "hwpx_cell" | "hwpx_para" | "hwpx_placeholder"; [k: string]: unknown };
 
 export type TemplateField = {
   label: string;
@@ -49,7 +52,7 @@ export type Template = {
   aliases: string[];
   fields: TemplateField[];
   field_keys: string[];
-  source_type: "docx" | "pdf" | null;
+  source_type: "docx" | "pdf" | "hwp" | "hwpx" | null;
   output_format: "hwpx" | "xlsx" | "docx" | "pdf";
   status: "analyzing" | "ready" | "archived" | "review_pending";
   expires_at: string | null;

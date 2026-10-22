@@ -5,9 +5,9 @@ import { api } from "@/lib/api";
 import type { Contract } from "@/lib/types";
 import { Button, ErrorText, Field, Input, Textarea } from "./ui";
 
-export type ContractInput = Pick<Contract, "contract_title" | "client_name" | "amount" | "start_date" | "end_date" | "description">;
+export type ContractInput = Pick<Contract, "contract_title" | "client_name" | "amount" | "contract_date" | "start_date" | "end_date" | "description">;
 
-export const emptyContract: ContractInput = { contract_title: "", client_name: "", amount: 0, start_date: null, end_date: null, description: "" };
+export const emptyContract: ContractInput = { contract_title: "", client_name: "", amount: 0, contract_date: null, start_date: null, end_date: null, description: "" };
 
 export default function ContractForm({
   initial,
@@ -60,6 +60,11 @@ export default function ContractForm({
             placeholder="55,000,000"
           />
         </Field>
+        <div className="sm:col-span-2">
+          <Field label="계약일자" hint="계약을 체결한 날짜입니다. 착수계·완료계 등에 자동 입력됩니다.">
+            <Input type="date" value={v.contract_date ?? ""} onChange={(e) => setV({ ...v, contract_date: e.target.value || null })} />
+          </Field>
+        </div>
         <Field label="착수일">
           <Input type="date" value={v.start_date ?? ""} onChange={(e) => setV({ ...v, start_date: e.target.value || null })} />
         </Field>

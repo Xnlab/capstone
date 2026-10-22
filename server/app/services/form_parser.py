@@ -1,4 +1,4 @@
-"""기업 자체 양식(Word/PDF) 구조 분석 (3주차 CASE 2).
+"""기업 자체 양식(한글/Word/PDF) 구조 분석 (3주차 CASE 2).
 
 양식에서 '항목명 + 빈 칸' 구조를 찾아 입력 위치 후보를 뽑는다.
 - DOCX 표: [항목명 셀][빈 셀] → 빈 셀이 입력 위치
@@ -82,4 +82,7 @@ def analyze(path: Path, file_type: str) -> dict:
         return analyze_docx(path)
     if file_type == "pdf":
         return analyze_pdf(path)
-    raise ValueError("지원하지 않는 형식입니다. (docx, pdf)")
+    if file_type == 'hwpx':
+        from app.services.hwpx_forms import analyze as analyze_hwpx
+        return analyze_hwpx(path)
+    raise ValueError("지원하지 않는 형식입니다. (docx, pdf, hwp, hwpx)")

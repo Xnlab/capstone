@@ -9,6 +9,8 @@ import type { Doc, Template } from "@/lib/types";
 import { Badge, Button, Card, CardHeader, ErrorText, Field, Input, Loading, PageHeader, Textarea } from "@/components/ui";
 
 const LONG_FIELDS = new Set([
+  "attachment_list",
+  "staff_plan", "deliverables", "quality_plan",
   "description", "work_summary", "quote_items", "detail_items", "completion_details",
   "work_method", "work_schedule", "usage_purpose", "attendees", "activity_details", "activity_result",
 ]);
@@ -20,6 +22,10 @@ const DERIVED_HINT: Record<string, string> = {
   submit_date: "오늘 날짜",
 };
 const FIELD_HINT: Record<string, string> = {
+  staff_plan: "실제 참여자 이름·직위·담당업무를 입력하세요. 공고에서 요구하는 자격·참여율도 확인하세요.",
+  deliverables: "산출물명·수량·제출시기·파일 형식을 계약조건에 맞게 입력하세요.",
+  quality_plan: "시험·검수 절차, 자료보안, 보고주기와 변경관리 절차를 입력하세요.",
+  attachment_list: "실제로 첨부할 서류만 한 줄에 하나씩 입력하세요. 공고·계약조건에 맞춰 수정하세요.",
   quote_items: "한 줄에 하나씩 ‘품목|수량|단가|비고’ 형식으로 입력하세요",
   detail_items: "한 줄에 하나씩 ‘항목|수량|단가|비고’ 형식으로 입력하세요",
   payment_amount_korean: "청구금액을 저장하면 자동으로 다시 계산됩니다",
@@ -31,22 +37,36 @@ export default function DocumentEditor() {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [template, setTemplate] = useState<Template | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
-  const [html, setHtml] = useState("");
+  const [pages, setPages] = useState<{ data: string; width: number; height: number }[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(true);
+  const [previewError, setPreviewError] = useState("");
   const focus = useQueryParam("focus");
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [savedAt, setSavedAt] = useState<string>("");
 
-  const loadPreview = useCallback(() => api.get<{ html: string }>(`/documents/${docId}/preview`).then((r) => setHtml(r.html)), [docId]);
+  const loadPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    setPreviewError("");
+    try {
+      const result = await api.get<{ pages: { data: string; width: number; height: number }[] }>(`/documents/${docId}/preview-pages`);
+      setPages(result.pages);
+    } catch (e) {
+      setPages([]);
+      setPreviewError((e as Error).message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [docId]);
 
   useEffect(() => {
     api.get<Doc>(`/documents/${docId}`).then((d) => {
       setDoc(d);
       setValues(d.values);
       api.get<Template>(`/templates/${d.template_id}`).then(setTemplate);
+      loadPreview();
     });
-    loadPreview();
   }, [docId, loadPreview]);
 
   useEffect(() => {
@@ -135,8 +155,8 @@ export default function DocumentEditor() {
         }
       />
 
-      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
-        <Card className="self-start">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <Card className="min-w-0 self-start">
           <CardHeader
             title="입력 항목"
             desc={`${doc.field_keys.length}개 중 ${completed}개 입력 완료`}
@@ -190,13 +210,26 @@ export default function DocumentEditor() {
           )}
         </Card>
 
-        <div>
+        <div className="min-w-0">
           <div className="mb-2 flex items-center justify-between text-[13px] text-muted">
             <span>미리보기 (저장된 내용 기준)</span>
             {doc.template_kind === "uploaded" && template?.source_type === "pdf" && <span>{doc.output_format === "pdf" ? "원본 PDF의 검토된 입력 위치에 값을 채웁니다" : "PDF 양식은 분석된 항목으로 Word 문서를 재구성합니다"}</span>}
+            {doc.template_kind === "uploaded" && (template?.source_type === "hwp" || template?.source_type === "hwpx") && <span>업로드한 한글 원본 양식 기준</span>}
           </div>
-          <div className="overflow-x-auto">
-            <div className="doc-paper mx-auto max-w-[720px]" dangerouslySetInnerHTML={{ __html: html }} />
+          <div className="space-y-5" aria-busy={previewLoading}>
+            {previewLoading ? <Loading /> : previewError ? (
+              <div className="rounded-xl border border-line bg-white p-5">
+                <ErrorText>{previewError}</ErrorText>
+                <Button variant="secondary" size="sm" className="mt-3" onClick={loadPreview}>미리보기 다시 불러오기</Button>
+              </div>
+            ) : pages.map((page, index) => (
+              <figure key={index} className="mx-auto w-full max-w-[720px]">
+                {/* Rasterized PDF pages preserve wrapping and page breaks at every viewport width. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={page.data} width={page.width} height={page.height} alt={`${doc.title} 미리보기 ${index + 1}페이지`} className="block h-auto w-full bg-white shadow-sm" />
+                <figcaption className="mt-2 text-center text-xs text-muted">{index + 1} / {pages.length} 페이지</figcaption>
+              </figure>
+            ))}
           </div>
         </div>
       </div>

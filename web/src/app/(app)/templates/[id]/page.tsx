@@ -24,6 +24,7 @@ export default function TemplateDetailPage() {
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState("");
   const [name, setName] = useState("");
+  const [previewPages, setPreviewPages] = useState<{ data: string; width: number; height: number }[]>([]);
   const [checks, setChecks] = useState({ mapping_checked: false, output_checked: false, rights_checked: false });
   useEffect(() => {
     Promise.all([api.get<Template>(`/templates/${id}`), api.get<typeof settings>("/templates/library-settings")]).then(([x, s]) => {
@@ -40,7 +41,7 @@ export default function TemplateDetailPage() {
   const save = () => act(async () => {
     await api.put(`/templates/${id}/metadata`, metadataPayload(meta));
     const x = await api.put<Template>(`/templates/${id}/mapping`, { fields });
-    setT(x); setMeta(x.library); setChecks({ mapping_checked: false, output_checked: false, rights_checked: false }); setPreview("");
+    setT(x); setMeta(x.library); setChecks({ mapping_checked: false, output_checked: false, rights_checked: false }); setPreview(""); setPreviewPages([]);
     setMessage(x.library.scope === "organization" ? "저장했습니다. 출력과 이용 조건을 확인한 뒤 공개하세요." : "저장했습니다.");
   });
   if (!t) return error ? <ErrorText>{error}</ErrorText> : <Loading />;
@@ -72,11 +73,19 @@ export default function TemplateDetailPage() {
       {editable ? <MappingEditor fields={fields} standard={standard} onChange={v => { setFields(v); setChecks({ mapping_checked: false, output_checked: false, rights_checked: false }); }} /> :
         <div className="flex flex-wrap gap-2 p-5">{fields.map((f, i) => <Badge key={i}>{f.label}</Badge>)}</div>}
       <div className="flex flex-wrap justify-end gap-3 border-t border-line p-5">
-        <Button variant="secondary" loading={busy} onClick={() => act(async () => { setPreview((await api.get<{ html: string }>(`/templates/${id}/review-preview`)).html); })}>저장된 양식 샘플 미리보기</Button>
+        <Button variant="secondary" loading={busy} onClick={() => act(async () => {
+          if (t.source_type === "hwp" || t.source_type === "hwpx") {
+            setPreviewPages((await api.get<{ pages: { data: string; width: number; height: number }[] }>(`/templates/${id}/review-preview-pages`)).pages);
+          } else { setPreview((await api.get<{ html: string }>(`/templates/${id}/review-preview`)).html); }
+        })}>저장된 양식 샘플 미리보기</Button>
         {editable && <Button loading={busy} onClick={save}>정보·매핑 저장</Button>}
       </div>
     </Card>
     {preview && <Card className="my-5 p-5"><h2 className="mb-4 font-semibold">샘플 데이터 미리보기</h2><div className="overflow-auto" dangerouslySetInnerHTML={{ __html: preview }} /><p className="mt-4 text-xs text-muted">서식·페이지 배치는 다운로드한 샘플 파일에서도 확인하세요.</p></Card>}
+    {previewPages.length > 0 && <div className="my-5 space-y-4">{previewPages.map((page, index) => (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img key={index} src={page.data} alt={`한글 양식 샘플 ${index + 1}페이지`} width={page.width} height={page.height} className="mx-auto h-auto w-full max-w-[720px] bg-white shadow-sm" />
+    ))}</div>}
     {editable && meta.scope === "organization" && <Card className="mt-5 p-5">
       <h2 className="font-semibold">관리자 공개 검토</h2><p className="mt-2 text-sm text-muted">먼저 저장한 뒤 샘플과 출력 파일을 확인하세요. 수정하면 공개 상태가 해제됩니다.</p>
       <div className="my-4 space-y-2">{([["mapping_checked", "입력 칸 매핑과 고정 문구를 확인했습니다"], ["output_checked", "미리보기·출력 파일의 서식을 확인했습니다"], ["rights_checked", "출처·이용 조건·적용 버전을 확인했습니다"]] as const).map(([key, label]) => <label className="block text-sm" key={key}><input type="checkbox" checked={checks[key]} onChange={e => setChecks({ ...checks, [key]: e.target.checked })} className="mr-2" />{label}</label>)}</div>

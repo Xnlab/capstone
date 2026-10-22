@@ -110,7 +110,7 @@ export default function TemplatesPage() {
       {section === "private" && <Card>
         <CardHeader title="내 업로드 양식" desc="공개되지 않는 개인 양식입니다. 업로드한 원본은 보관기간 후 삭제됩니다." />
         {mine.length === 0 ? (
-          <Empty title="업로드한 양식이 없습니다" desc="발주처가 보낸 Word/PDF 양식을 올리면 AI가 항목을 분석합니다." action={<LinkButton href="/templates/upload">업로드하기</LinkButton>} />
+          <Empty title="업로드한 양식이 없습니다" desc="발주처가 보낸 한글·Word·PDF 양식을 올리면 입력 항목을 분석합니다." action={<LinkButton href="/templates/upload">업로드하기</LinkButton>} />
         ) : (
           <ul className="divide-y divide-line">
             {mine.map((t) => (
@@ -140,7 +140,7 @@ export default function TemplatesPage() {
         {preview && (
           <>
             <div className="mb-3 flex items-center justify-between gap-3 text-xs text-muted">
-              <span>샘플 데이터로 작성된 실제 A4 페이지 미리보기입니다.</span>
+              <span>샘플 데이터의 A4 PDF 배치입니다. 제출 전 한글·Excel에서 원본 배치를 확인하세요.</span>
               <Badge tone="indigo">실제 원본: {preview.output_format === "xlsx" ? "Excel(XLSX)" : "한글(HWPX)"}</Badge>
             </div>
             <div className="max-h-[78vh] space-y-4 overflow-auto rounded-lg border border-line bg-gray-200 p-4">
