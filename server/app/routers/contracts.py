@@ -14,7 +14,7 @@ from app.routers.company import get_or_create_company
 from app.routers.templates import get_visible
 from app.schemas import ContractIn, DocumentCreate, MailIn
 from app.services import ai, renderer
-from app.services.documents import auto_values, build_docx, build_native, safe_filename, to_out
+from app.services.documents import auto_values, build_native, build_pdf, review_text, safe_filename, to_out
 from app.services.mailer import send_mail
 from app.services.library import recommendation, scope
 from app.services.validator import validate
@@ -118,7 +118,7 @@ def validate_contract(contract_id: int, with_ai: bool = False, user: User = Depe
     result["ai_comments"] = []
     if with_ai:
         for d in docs:
-            comments = ai.review_text(d.title, renderer.docx_to_text(build_docx(d)))
+            comments = ai.review_text(d.title, review_text(d))
             if comments:
                 result["ai_comments"].append({"document_id": d.id, "title": d.title, "comments": comments})
         db.add(AuditLog(user_id=user.id, action="ai_send", detail=f"문장 검토 {len(docs)}건 (계약 {c.id}, 마스킹 후 전송)"))
@@ -136,9 +136,8 @@ def _render_files(docs: list[Document], fmt: str) -> list[tuple[str, bytes, str]
         if fmt in ("native", "both", "docx"):
             data, ext, media = build_native(d)
             files.append((f"{name}.{ext}", data, media.split("/", 1)[1]))
-        if fmt in ("pdf", "both"):
-            docx = build_docx(d)
-            files.append((f"{name}.pdf", renderer.docx_to_pdf_bytes(docx), "pdf"))
+        if fmt == "pdf" or (fmt == "both" and not any(n == f"{name}.pdf" for n, _, _ in files)):
+            files.append((f"{name}.pdf", build_pdf(d), "pdf"))
     return files
 
 

@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models import AuditLog, Contract, Document, Template, User
-from app.schemas import TemplateMappingIn, LibraryMetadataIn, LibraryPublishIn
+from app.models import AuditLog, Contract, Document, Template, TemplateFavorite, User
+from app.schemas import TemplateMappingIn, LibraryMetadataIn, LibraryPublishIn, TemplateRenameIn, FavoriteIn
 from app.services.library import is_admin, require_admin, metadata, scope, recommendation
 from app.services import ai, form_parser, renderer
-from app.services.documents import template_keys
+from app.services.documents import template_keys, output_format
+from app.services.pdf_forms import positioned, validate_locations
 from app.standard_fields import STANDARD_FIELDS
 
 router = APIRouter(prefix="/templates", tags=["templates"])
@@ -76,7 +77,7 @@ def to_out(t: Template) -> dict:
         "field_keys": template_keys(t), "source_type": t.source_type, "status": t.status,
         "expires_at": t.expires_at, "created_at": t.created_at,
         "library": {"scope": scope(t), **metadata(t)},
-        "output_format": t.definition.get("output_format", "docx") if t.kind == "builtin" else "docx",
+        "output_format": output_format(t),
     }
 
 
@@ -126,6 +127,24 @@ def standard_fields():
     return [{"key": k, "label": m["label"], "group": m["group"], "synonyms": m["synonyms"]} for k, m in STANDARD_FIELDS.items()]
 
 
+@router.get("/favorites")
+def favorites(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    visible = {t.id for t in visible_templates(db, user)}
+    return [id_ for id_ in db.scalars(select(TemplateFavorite.template_id).where(TemplateFavorite.user_id == user.id)) if id_ in visible]
+
+
+@router.get("/organizations")
+def organizations(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.services.library import normalize_issuer
+    names = [metadata(t).get("organization", "") for t in visible_templates(db, user) if t.status == "ready"]
+    names += list(db.scalars(select(Contract.client_name).where(Contract.user_id == user.id)))
+    unique = {}
+    for name in names:
+        if name and name.strip():
+            unique.setdefault(normalize_issuer(name), name.strip())
+    return sorted(unique.values())
+
+
 @router.get("")
 def list_templates(kind: str | None = None, include_drafts: bool = False, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     items = [t for t in visible_templates(db, user) if t.status == "ready" or
@@ -157,6 +176,33 @@ def search(q: str = "", contract_id: int | None = None, project_code: str = "", 
 @router.get("/{template_id}")
 def get_template(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return to_out(get_visible(db, user, template_id))
+
+
+@router.put("/{template_id}/favorite")
+def set_favorite(template_id: int, body: FavoriteIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_visible(db, user, template_id)
+    row = db.get(TemplateFavorite, (user.id, template_id))
+    if body.favorite and row is None:
+        db.add(TemplateFavorite(user_id=user.id, template_id=template_id))
+    elif not body.favorite and row is not None:
+        db.delete(row)
+    db.commit()
+    return {"favorite": body.favorite}
+
+
+@router.put("/{template_id}/name")
+def rename_template(template_id: int, body: TemplateRenameIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = get_visible(db, user, template_id)
+    if t.kind == "builtin":
+        raise HTTPException(400, "공통 양식의 이름은 변경할 수 없습니다.")
+    if scope(t) == "organization":
+        require_admin(user)
+    elif t.owner_id != user.id:
+        raise HTTPException(403, "본인 양식만 수정할 수 있습니다.")
+    t.name = body.name
+    db.add(AuditLog(user_id=user.id, action="template_rename", detail=f"양식 {t.id} 이름 변경: {body.name}"))
+    db.commit()
+    return to_out(t)
 
 
 @router.get("/{template_id}/preview")
@@ -268,6 +314,9 @@ def save_mapping(template_id: int, body: TemplateMappingIn, user: User = Depends
     for f in body.fields:
         if f.field_key and f.field_key not in STANDARD_FIELDS:
             raise HTTPException(400, f"알 수 없는 표준 필드: {f.field_key}")
+    candidate = Template(source_path=t.source_path, source_type=t.source_type, fields=[f.model_dump() for f in body.fields])
+    if positioned(candidate):
+        validate_locations(candidate)
     old = {(f.get("label"), str(f.get("location"))): f for f in t.fields}
     t.fields = [
         {**f.model_dump(), "method": "user" if old.get((f.label, str(f.location)), {}).get("field_key") != f.field_key else f.method}
@@ -309,8 +358,10 @@ def publish(template_id: int, body: LibraryPublishIn, user: User = Depends(get_c
         raise HTTPException(400, "발주처·서류 종류·출처·버전·이용 조건을 입력하세요.")
     if not all((body.mapping_checked, body.output_checked, body.rights_checked)) or not info.get("review_note"):
         raise HTTPException(400, "매핑·출력·이용 조건을 확인하고 검토 메모를 남겨 주세요.")
-    if t.source_type != "docx" or not t.source_path or not Path(t.source_path).is_file():
-        raise HTTPException(400, "지정 양식은 원본 형식을 유지할 수 있는 DOCX 편집용 파일이 필요합니다. PDF는 검토 자료로만 보관합니다.")
+    if not t.source_path or not Path(t.source_path).is_file() or (t.source_type != "docx" and not positioned(t)):
+        raise HTTPException(400, "지정 양식은 DOCX 또는 입력 위치를 검토한 PDF가 필요합니다.")
+    if positioned(t):
+        validate_locations(t)
     if not template_keys(t) or any(not f.get("field_key") for f in t.fields):
         raise HTTPException(400, "입력 칸을 모두 매핑한 뒤 공개하세요.")
     t.definition = {**t.definition, "library": {**info, "reviewed_at": datetime.utcnow().isoformat(), "reviewer_id": user.id}}
@@ -323,9 +374,9 @@ def publish(template_id: int, body: LibraryPublishIn, user: User = Depends(get_c
 @router.get("/{template_id}/review-preview")
 def review_preview(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     t = get_visible(db, user, template_id)
-    from app.services.documents import build_docx
+    from app.services.documents import preview_html
     doc = Document(template=t, values=SAMPLE_VALUES)
-    return {"html": renderer.docx_to_html(build_docx(doc))}
+    return {"html": preview_html(doc)}
 
 
 @router.get("/{template_id}/original")
@@ -339,10 +390,11 @@ def original(template_id: int, user: User = Depends(get_current_user), db: Sessi
 
 @router.get("/{template_id}/sample-file")
 def sample_file(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from app.services.documents import build_docx
+    from app.services.documents import build_native
     t = get_visible(db, user, template_id)
     doc = Document(template=t, values=SAMPLE_VALUES)
-    return Response(renderer.docx_bytes(build_docx(doc)), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": 'attachment; filename="sample.docx"'})
+    data, ext, media = build_native(doc)
+    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="sample.{ext}"'})
 
 
 @router.delete("/{template_id}")
@@ -355,6 +407,8 @@ def delete_template(template_id: int, user: User = Depends(get_current_user), db
         raise HTTPException(409, "이 양식으로 작성된 서류가 있어 삭제할 수 없습니다. 서류를 먼저 삭제하세요.")
     if t.source_path:
         Path(t.source_path).unlink(missing_ok=True)
+    from sqlalchemy import delete
+    db.execute(delete(TemplateFavorite).where(TemplateFavorite.template_id == t.id))
     db.add(AuditLog(user_id=user.id, action="file_delete", detail=f"자체 양식 '{t.name}' 삭제(사용자 요청)"))
     db.delete(t)
     db.commit()

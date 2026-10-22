@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import OrganizationLibrary from "@/components/OrganizationLibrary";
+import { FavoriteButton, useFavorites } from "@/components/TemplateExtras";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useStandardFields } from "@/lib/hooks";
@@ -10,7 +11,7 @@ import type { Template } from "@/lib/types";
 import { Badge, Button, Card, CardHeader, Empty, ErrorText, Input, LinkButton, Loading, Modal, PageHeader } from "@/components/ui";
 
 type PreviewPage = { data: string; width: number; height: number };
-type Preview = { title: string; pages: PreviewPage[]; output_format: "hwpx" | "xlsx" | "docx" };
+type Preview = { title: string; pages: PreviewPage[]; output_format: "hwpx" | "xlsx" | "docx" | "pdf" };
 
 export default function TemplatesPage() {
   const [items, setItems] = useState<Template[] | null>(null);
@@ -23,6 +24,7 @@ export default function TemplatesPage() {
   const [previewing, setPreviewing] = useState<number | null>(null);
   const [previewError, setPreviewError] = useState("");
   const { labelOf } = useStandardFields();
+  const favorites = useFavorites();
 
   useEffect(() => {
     api.get<Template[]>("/templates?include_drafts=true").then(setItems).catch(e => setLoadError(e.message));
@@ -30,11 +32,11 @@ export default function TemplatesPage() {
   }, []);
 
   const builtin = useMemo(() => items?.filter((t) => t.kind === "builtin") ?? [], [items]);
-  const mine = items?.filter((t) => t.library.scope === "private") ?? [];
+  const mine = favorites.sort(items?.filter((t) => t.library.scope === "private") ?? []);
   const cats = ["전체", ...Array.from(new Set(builtin.map((t) => t.category)))];
-  const shown = builtin.filter(
+  const shown = favorites.sort(builtin.filter(
     (t) => (cat === "전체" || t.category === cat) && (!q || [t.name, ...t.aliases, t.description].some((s) => s.includes(q))),
-  );
+  ));
 
   const showPreview = async (t: Template) => {
     setPreviewing(t.id);
@@ -60,7 +62,8 @@ export default function TemplatesPage() {
 
       <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="양식 구분">{[["common", "공통 양식"], ["organization", "기관·기업 지정 양식"], ["private", "내 업로드 양식"]].map(([key, label]) => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)} className={`rounded-lg px-4 py-2 text-sm ${section === key ? "bg-primary text-white" : "bg-white border border-line"}`}>{label}</button>)}</div>
       <ErrorText>{loadError}</ErrorText>
-      {section === "organization" && <OrganizationLibrary items={items} admin={admin} />}
+      <ErrorText>{favorites.error}</ErrorText>
+      {section === "organization" && <OrganizationLibrary items={items} admin={admin} favorites={favorites} />}
       {section === "common" && <Card className="mb-6">
         <CardHeader title="서비스 기본 양식" desc="계약 과정에서 자주 요구되는 서류 — 이름이 달라도(착수신고서, 준공계 …) 찾아집니다." />
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3">
@@ -79,7 +82,7 @@ export default function TemplatesPage() {
           {shown.map((t) => (
             <div key={t.id} className="flex h-full flex-col rounded-lg border border-line p-4">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold">{t.name}</span>
+                <span className="font-semibold"><FavoriteButton id={t.id} state={favorites} /> {t.name}</span>
                 <div className="flex gap-1">
                   <Badge tone="indigo">{t.output_format === "xlsx" ? "Excel" : "한글"}</Badge>
                   <Badge>{t.category}</Badge>
@@ -111,8 +114,9 @@ export default function TemplatesPage() {
         ) : (
           <ul className="divide-y divide-line">
             {mine.map((t) => (
-              <li key={t.id}>
-                <Link href={`/templates/${t.id}`} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 hover:bg-gray-50">
+              <li key={t.id} className="flex items-center px-3">
+                <FavoriteButton id={t.id} state={favorites} />
+                <Link href={`/templates/${t.id}`} className="flex flex-1 flex-wrap items-center justify-between gap-2 px-5 py-3.5 hover:bg-gray-50">
                   <div>
                     <div className="flex items-center gap-1.5 font-medium">
                       {t.name}

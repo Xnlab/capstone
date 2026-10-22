@@ -27,7 +27,7 @@ export type Contract = {
   document_count: number;
 };
 
-export type FieldLocation = { type: "cell" | "para" | "pdf_line"; [k: string]: unknown };
+export type FieldLocation = { type: "cell" | "para" | "pdf_line" | "pdf_rect"; [k: string]: unknown };
 
 export type TemplateField = {
   label: string;
@@ -50,7 +50,7 @@ export type Template = {
   fields: TemplateField[];
   field_keys: string[];
   source_type: "docx" | "pdf" | null;
-  output_format: "hwpx" | "xlsx" | "docx";
+  output_format: "hwpx" | "xlsx" | "docx" | "pdf";
   status: "analyzing" | "ready" | "archived" | "review_pending";
   expires_at: string | null;
   created_at: string;
@@ -79,7 +79,7 @@ export type Doc = {
   values: Record<string, string>;
   status: "draft" | "reviewed";
   template_kind: "builtin" | "uploaded";
-  output_format: "hwpx" | "xlsx" | "docx";
+  output_format: "hwpx" | "xlsx" | "docx" | "pdf";
   field_keys: string[];
   missing: string[];
   updated_at: string;

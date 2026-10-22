@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useQueryParam, useStandardFields } from "@/lib/hooks";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import type { Doc, Template } from "@/lib/types";
 import { Badge, Button, Card, CardHeader, ErrorText, Field, Input, Loading, PageHeader, Textarea } from "@/components/ui";
 
@@ -62,6 +63,7 @@ export default function DocumentEditor() {
   }, [template]);
 
   const dirty = doc && JSON.stringify(values) !== JSON.stringify(doc.values);
+  const markSaved = useUnsavedChanges(Boolean(dirty));
 
   const save = async () => {
     setSaving(true);
@@ -70,6 +72,7 @@ export default function DocumentEditor() {
       const d = await api.put<Doc>(`/documents/${docId}`, { values });
       setDoc(d);
       setValues(d.values);
+      markSaved();
       await loadPreview();
       setSavedAt(new Date().toLocaleTimeString("ko-KR"));
     } catch (e) {
@@ -105,8 +108,9 @@ export default function DocumentEditor() {
 
   if (!doc) return <Loading />;
 
-  const nativeLabel = doc.output_format === "xlsx" ? "Excel" : doc.output_format === "hwpx" ? "한글(HWPX)" : "Word";
+  const nativeLabel = doc.output_format === "xlsx" ? "Excel" : doc.output_format === "hwpx" ? "한글(HWPX)" : doc.output_format === "pdf" ? "원본 PDF" : "Word";
   const nativeExt = doc.output_format;
+  const completed = doc.field_keys.filter(k => String(values[k] ?? "").trim()).length;
 
   return (
     <>
@@ -135,7 +139,7 @@ export default function DocumentEditor() {
         <Card className="self-start">
           <CardHeader
             title="입력 항목"
-            desc="회사·계약정보로 자동 입력된 값입니다. 필요하면 수정하세요."
+            desc={`${doc.field_keys.length}개 중 ${completed}개 입력 완료`}
             action={
               <Button size="sm" variant="ghost" onClick={reapply} loading={busy === "reapply"}>
                 정보 다시 적용
@@ -189,7 +193,7 @@ export default function DocumentEditor() {
         <div>
           <div className="mb-2 flex items-center justify-between text-[13px] text-muted">
             <span>미리보기 (저장된 내용 기준)</span>
-            {doc.template_kind === "uploaded" && template?.source_type === "pdf" && <span>PDF 양식은 분석된 항목으로 Word 문서를 재구성합니다</span>}
+            {doc.template_kind === "uploaded" && template?.source_type === "pdf" && <span>{doc.output_format === "pdf" ? "원본 PDF의 검토된 입력 위치에 값을 채웁니다" : "PDF 양식은 분석된 항목으로 Word 문서를 재구성합니다"}</span>}
           </div>
           <div className="overflow-x-auto">
             <div className="doc-paper mx-auto max-w-[720px]" dangerouslySetInnerHTML={{ __html: html }} />

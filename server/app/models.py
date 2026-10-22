@@ -110,3 +110,10 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(50))
     detail: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TemplateFavorite(Base):
+    __tablename__ = "template_favorites"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    template_id: Mapped[int] = mapped_column(ForeignKey("templates.id"), primary_key=True)

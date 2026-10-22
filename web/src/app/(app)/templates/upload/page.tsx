@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useQueryParam, useStandardFields } from "@/lib/hooks";
 import type { LibraryMetadata, Template, TemplateField, UploadAnalysis } from "@/lib/types";
 import LibraryMetadataEditor, { metadataPayload } from "@/components/LibraryMetadataEditor";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import MappingEditor from "@/components/MappingEditor";
 import { Badge, Button, Card, CardHeader, ErrorText, Field, Input, PageHeader, Spinner } from "@/components/ui";
 
@@ -35,6 +36,7 @@ export default function UploadTemplatePage() {
   const [fields, setFields] = useState<TemplateField[]>([]);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  const markSaved = useUnsavedChanges(Boolean(template));
 
   const upload = async (file: File) => {
     setError("");
@@ -66,6 +68,7 @@ export default function UploadTemplatePage() {
     try {
       await api.put(`/templates/${template.id}/metadata`, metadataPayload(meta));
       await api.put(`/templates/${template.id}/mapping`, { name, fields });
+      markSaved();
       if (meta.scope === "organization") {
         router.push(`/templates/${template.id}`);
       } else if (contractId) {
@@ -175,6 +178,7 @@ export default function UploadTemplatePage() {
               <Button
                 variant="secondary"
                 onClick={() => {
+                  if (!confirm("현재 양식의 저장하지 않은 설정을 닫고 다른 파일을 선택할까요?")) return;
                   setTemplate(null);
                   setAnalysis(null);
                 }}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
+import { api } from "@/lib/api";
 import type { Contract } from "@/lib/types";
 import { Button, ErrorText, Field, Input, Textarea } from "./ui";
 
@@ -20,6 +21,9 @@ export default function ContractForm({
   const [v, setV] = useState<ContractInput>(initial);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [organizations, setOrganizations] = useState<string[]>([]);
+  const organizationList = useId();
+  useEffect(() => { api.get<string[]>("/templates/organizations").then(setOrganizations).catch(() => setOrganizations([])); }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -45,7 +49,8 @@ export default function ContractForm({
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="발주처" hint="서류의 '귀하'·'수신' 칸에 들어갑니다">
-          <Input value={v.client_name} onChange={(e) => setV({ ...v, client_name: e.target.value })} placeholder="대전관광공사" />
+          <Input list={organizationList} autoComplete="off" value={v.client_name} onChange={(e) => setV({ ...v, client_name: e.target.value })} placeholder="기관·기업명을 입력하거나 선택하세요" />
+          <datalist id={organizationList}>{organizations.map(name => <option value={name} key={name} />)}</datalist>
         </Field>
         <Field label="계약금액 (부가세 포함, 원)" hint={v.amount ? `공급가액 ${Math.round(v.amount / 1.1).toLocaleString()}원 + 부가세 ${(v.amount - Math.round(v.amount / 1.1)).toLocaleString()}원` : undefined}>
           <Input

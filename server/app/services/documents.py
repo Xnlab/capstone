@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.builtin_templates import template_field_keys
 from app.models import AuditLog, Company, Contract, Document, Template
 from app.services import ai, renderer
+from app.services.pdf_forms import positioned, fill_pdf
 from app.services.professional_renderer import render_native
 from app.standard_fields import base_values
 
@@ -39,6 +40,9 @@ def auto_values(db: Session, user_id: int, t: Template, company: Company | None,
 
 def build_docx(doc: Document):
     t = doc.template
+    if positioned(t):
+        from fastapi import HTTPException
+        raise HTTPException(400, "원본 PDF 지정 양식은 PDF 형식으로 출력하세요.")
     if t.kind == "builtin":
         return renderer.render_builtin_docx(t.definition, doc.values)
     if t.source_type == "docx" and t.source_path and Path(t.source_path).exists():
@@ -49,6 +53,8 @@ def build_docx(doc: Document):
 
 def output_format(t: Template) -> str:
     """User-facing native format. Uploaded forms keep their existing DOCX path."""
+    if positioned(t):
+        return "pdf"
     if t.kind == "builtin":
         return t.definition.get("output_format", "hwpx")
     return "docx"
@@ -56,6 +62,8 @@ def output_format(t: Template) -> str:
 
 def build_native(doc: Document) -> tuple[bytes, str, str]:
     """Return bytes, extension, and full media type for the preferred native file."""
+    if positioned(doc.template):
+        return fill_pdf(doc.template, doc.values), "pdf", "application/pdf"
     if doc.template.kind == "builtin" and doc.template.definition.get("sections"):
         return render_native(doc.template.definition, doc.values)
     return (
@@ -63,6 +71,27 @@ def build_native(doc: Document) -> tuple[bytes, str, str]:
         "docx",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
+
+
+def build_pdf(doc: Document) -> bytes:
+    if positioned(doc.template):
+        return fill_pdf(doc.template, doc.values)
+    return renderer.docx_to_pdf_bytes(build_docx(doc))
+
+
+def preview_html(doc: Document) -> str:
+    if positioned(doc.template):
+        from app.services.pdf_forms import preview_html as pdf_preview
+        return pdf_preview(build_pdf(doc))
+    return renderer.docx_to_html(build_docx(doc))
+
+
+def review_text(doc: Document) -> str:
+    if positioned(doc.template):
+        import pymupdf
+        with pymupdf.open(stream=build_pdf(doc), filetype="pdf") as pdf:
+            return "\n".join(page.get_text() for page in pdf)
+    return renderer.docx_to_text(build_docx(doc))
 
 
 def safe_filename(name: str) -> str:

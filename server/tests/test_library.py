@@ -101,6 +101,84 @@ class LibraryTests(unittest.TestCase):
         t = self.form(scope="private"); t.owner_id = self.user.id; t.status = "ready"; self.db.commit()
         self.assertEqual(self.client.get(f"/templates/{t.id}").status_code, 404)
 
+    def test_favorites_are_idempotent_and_user_scoped(self):
+        t = self.form(); self.publish(t)
+        for _ in range(2):
+            self.assertEqual(self.client.put(f"/templates/{t.id}/favorite", json={"favorite": True}).status_code, 200)
+        self.assertEqual(self.client.get("/templates/favorites").json(), [t.id])
+        self.current = self.user
+        self.assertEqual(self.client.get("/templates/favorites").json(), [])
+        self.current = self.admin
+        self.client.put(f"/templates/{t.id}/favorite", json={"favorite": False})
+        self.assertEqual(self.client.get("/templates/favorites").json(), [])
+
+    def test_rename_preserves_document_title_and_checks_permissions(self):
+        t = self.form(); self.publish(t)
+        c = Contract(user_id=self.user.id, contract_title="계약", client_name="테스트")
+        self.db.add(c); self.db.flush()
+        d = Document(contract_id=c.id, template_id=t.id, title=t.name, values={})
+        self.db.add(d); self.db.commit()
+        self.assertEqual(self.client.put(f"/templates/{t.id}/name", json={"name": "새 양식 이름"}).status_code, 200)
+        self.db.refresh(d); self.assertEqual(d.title, "착수계")
+        self.assertEqual(self.client.put(f"/templates/{t.id}/name", json={"name": "   "}).status_code, 422)
+        self.current = self.user
+        self.assertEqual(self.client.put(f"/templates/{t.id}/name", json={"name": "변경"}).status_code, 403)
+
+    def test_organization_suggestions_do_not_leak_other_contracts(self):
+        t = self.form(); self.publish(t)
+        self.db.add_all([Contract(user_id=self.user.id, contract_title="개인", client_name="비공개 거래처"), Contract(user_id=self.admin.id, contract_title="본인", client_name="이전 거래처")]); self.db.commit()
+        names = self.client.get("/templates/organizations").json()
+        self.assertIn("주식회사 테스트", names)
+        self.assertIn("이전 거래처", names)
+        self.assertNotIn("비공개 거래처", names)
+
+    def pdf_form(self):
+        import pymupdf
+        t = self.form()
+        path = Path(self.tmp.name) / "original.pdf"
+        with pymupdf.open() as pdf:
+            page = pdf.new_page(width=400, height=500)
+            page.insert_text((50, 40), "FIXED ORIGINAL CLAUSE")
+            page.insert_text((50, 200), "2025")
+            pdf.save(path)
+        t.source_type, t.source_path = "pdf", str(path)
+        t.fields = [{"label": "회사명", "field_key": "company_name", "location": {"type": "pdf_rect", "page": 0, "rect": [50, 80, 350, 110]}}]
+        self.db.commit()
+        return t
+
+    def test_positioned_pdf_download_preserves_original(self):
+        import pymupdf
+        t = self.pdf_form()
+        original = Path(t.source_path).read_bytes()
+        self.assertEqual(self.publish(t).status_code, 200)
+        response = self.client.get(f"/templates/{t.id}/sample-file")
+        self.assertEqual(response.headers["content-type"], "application/pdf")
+        with pymupdf.open(stream=response.content, filetype="pdf") as pdf:
+            self.assertIn("FIXED ORIGINAL CLAUSE", pdf[0].get_text())
+            self.assertIn("주식회사 샘플", pdf[0].get_text())
+        self.assertEqual(original, Path(t.source_path).read_bytes())
+
+    def test_pdf_rejects_fixed_text_overlap_and_overflow(self):
+        from app.services.pdf_forms import fill_pdf, validate_locations
+        from fastapi import HTTPException
+        t = self.pdf_form()
+        fields = t.fields
+        t.fields = [{**fields[0], "location": {"type": "pdf_rect", "page": 0, "rect": [45, 25, 300, 45]}}]
+        with self.assertRaises(HTTPException):
+            validate_locations(t)
+        t.fields = fields
+        with self.assertRaises(HTTPException):
+            fill_pdf(t, {"company_name": "너무 긴 회사명" * 1000})
+
+    def test_pdf_cannot_erase_non_date_or_use_bad_coordinates(self):
+        from app.services.pdf_forms import validate_locations
+        from fastapi import HTTPException
+        t = self.pdf_form()
+        t.fields = [{"label": "회사", "field_key": "company_name", "location": {"type": "pdf_rect", "page": 0, "rect": [50, 185, 100, 210], "replace": True}}]
+        with self.assertRaises(HTTPException): validate_locations(t)
+        t.fields = [{"label": "회사", "field_key": "company_name", "location": {"type": "pdf_rect", "page": 0, "rect": [-50, 80, 300, 110]}}]
+        with self.assertRaises(HTTPException): validate_locations(t)
+
 
 if __name__ == "__main__":
     unittest.main()

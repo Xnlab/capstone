@@ -134,7 +134,7 @@ export default function ContractWorkspace() {
                           {d.title}
                         </Link>
                         <Badge tone={d.template_kind === "builtin" ? "gray" : "blue"}>{d.template_kind === "builtin" ? "기본 양식" : "자체 양식"}</Badge>
-                        <Badge tone="indigo">{d.output_format === "xlsx" ? "Excel" : d.output_format === "hwpx" ? "한글" : "Word"}</Badge>
+                        <Badge tone="indigo">{d.output_format === "xlsx" ? "Excel" : d.output_format === "hwpx" ? "한글" : d.output_format === "pdf" ? "PDF" : "Word"}</Badge>
                         {d.status === "reviewed" ? <Badge tone="green">검토 완료</Badge> : <Badge tone="amber">작성 중</Badge>}
                       </div>
                       <div className="mt-0.5 text-xs text-muted">
@@ -150,7 +150,7 @@ export default function ContractWorkspace() {
                         편집·미리보기
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => api.download(`/documents/${d.id}/download?format=native`, `${d.title}.${d.output_format}`)}>
-                        {d.output_format === "xlsx" ? "Excel" : d.output_format === "hwpx" ? "한글" : "Word"}
+                        {d.output_format === "xlsx" ? "Excel" : d.output_format === "hwpx" ? "한글" : d.output_format === "pdf" ? "PDF" : "Word"}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => removeDoc(d)} aria-label="삭제">
                         ✕

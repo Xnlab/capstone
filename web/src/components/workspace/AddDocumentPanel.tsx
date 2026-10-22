@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import type { Template } from "@/lib/types";
 import { Badge, Button, Card, ErrorText, Input, Spinner } from "@/components/ui";
+import { PastNoticeBadge } from "@/components/TemplateExtras";
 
 type SearchRes = { results: { template: Template; score: number; ai: boolean; reason: string }[]; ai_enabled: boolean };
 
@@ -19,7 +20,7 @@ function Row({ t, badge, adding, onAdd }: { t: Template; badge?: ReactNode; addi
     <li className="flex items-center justify-between gap-2 py-2.5">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-sm font-medium">
-          {t.name} <Badge tone="gray">{t.output_format === "xlsx" ? "Excel" : t.output_format === "hwpx" ? "한글" : "Word"}</Badge> {badge}
+          {t.name} <Badge tone="gray">{t.output_format === "xlsx" ? "Excel" : t.output_format === "hwpx" ? "한글" : t.output_format === "pdf" ? "PDF" : "Word"}</Badge> <PastNoticeBadge template={t} /> {badge}
         </div>
         <div className="truncate text-xs text-muted">{t.description}</div>
       </div>

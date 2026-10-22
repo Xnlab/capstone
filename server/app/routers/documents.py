@@ -10,7 +10,8 @@ from app.models import AuditLog, Document, User
 from app.routers.company import get_or_create_company
 from app.schemas import DocumentUpdate
 from app.services import ai, renderer
-from app.services.documents import auto_values, build_docx, build_native, safe_filename, template_keys, to_out
+from app.services.documents import auto_values, build_docx, build_native, build_pdf, preview_html, safe_filename, template_keys, to_out
+from app.services.pdf_forms import positioned
 from app.standard_fields import base_values, korean_amount
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -76,7 +77,7 @@ def generate_field(document_id: int, field_key: str, user: User = Depends(get_cu
 @router.get("/{document_id}/preview")
 def preview(document_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     d = get_owned_doc(db, user, document_id)
-    return {"html": renderer.docx_to_html(build_docx(d))}
+    return {"html": preview_html(d)}
 
 
 @router.get("/{document_id}/download")
@@ -84,11 +85,12 @@ def download(document_id: int, format: str = "native", user: User = Depends(get_
     d = get_owned_doc(db, user, document_id)
     name = safe_filename(f"{d.contract.contract_title}_{d.title}")
     if format == "pdf":
-        docx = build_docx(d)
-        data, media, ext = renderer.docx_to_pdf_bytes(docx), "application/pdf", "pdf"
+        data, media, ext = build_pdf(d), "application/pdf", "pdf"
     elif format == "native":
         data, ext, media = build_native(d)
     elif format == "docx":
+        if positioned(d.template):
+            raise HTTPException(400, "이 지정 양식은 원본 PDF 형식으로 다운로드하세요.")
         docx = build_docx(d)
         data, media, ext = renderer.docx_bytes(docx), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"
     else:

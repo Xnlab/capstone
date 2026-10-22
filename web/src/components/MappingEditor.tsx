@@ -54,7 +54,7 @@ export default function MappingEditor({
                   <div className="font-medium">{f.label}</div>
                   {ctx && ctx !== f.label && <div className="max-w-[260px] truncate text-xs text-muted">{ctx}</div>}
                 </td>
-                <td className="px-2 py-2.5 text-xs text-muted">{f.location.type === "cell" ? "표 칸" : f.location.type === "para" ? "문단" : "PDF 줄"}</td>
+                <td className="px-2 py-2.5 text-xs text-muted">{f.location.type === "cell" ? "표 칸" : f.location.type === "para" ? "문단" : f.location.type === "pdf_rect" ? `PDF ${Number(f.location.page) + 1}페이지 입력란` : "PDF 줄"}</td>
                 <td className="px-2 py-2.5">
                   <select
                     value={f.field_key ?? ""}
