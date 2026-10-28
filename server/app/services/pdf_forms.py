@@ -8,6 +8,7 @@ import pymupdf
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.services.source_storage import resolve
 
 
 def positioned(template):
@@ -16,10 +17,11 @@ def positioned(template):
     )
 
 
-def validate_locations(template):
-    if not template.source_path or not Path(template.source_path).is_file():
+def validate_locations(template, source=None):
+    source = source or resolve(template)
+    if not source or not source.is_file():
         raise HTTPException(409, "원본 PDF가 없습니다. 다시 등록해 주세요.")
-    with pymupdf.open(template.source_path) as doc:
+    with pymupdf.open(source) as doc:
         for page in doc:
             if page.rotation or any(a.type[0] == pymupdf.PDF_ANNOT_REDACT for a in (page.annots() or [])):
                 raise HTTPException(422, "회전 또는 삭제 주석이 있는 PDF는 원본을 정리한 뒤 등록하세요.")
@@ -52,11 +54,12 @@ def validate_locations(template):
 
 
 def fill_pdf(template, values):
-    validate_locations(template)
+    source = resolve(template)
+    validate_locations(template, source)
     font_path = Path(settings.PDF_FONT_PATH)
     if not font_path.is_file():
         raise HTTPException(503, "PDF 입력에 사용할 한글 글꼴을 설정해 주세요.")
-    with pymupdf.open(template.source_path) as doc:
+    with pymupdf.open(source) as doc:
         for field in template.fields:
             loc = field["location"]
             if loc.get("replace") and str(values.get(field["field_key"], "")).strip():

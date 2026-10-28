@@ -199,7 +199,8 @@ def fill(path: Path, fields: list, values: dict) -> bytes:
 
 
 def editable_path(template):
-    path = Path(template.source_path) if template.source_path else None
+    from app.services.source_storage import resolve
+    path = resolve(template)
     if path and template.source_type == 'hwp':
         path = path.with_suffix('.hwpx')
     if not path or not path.is_file():

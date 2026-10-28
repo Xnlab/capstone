@@ -19,6 +19,7 @@ from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.security import get_current_user
 from app.models import AuditLog, Template, User
 from app.routers import auth, company, contracts, documents, templates
+from app.services.source_storage import TemporaryFilesMiddleware, remove
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
@@ -73,9 +74,7 @@ def purge_expired_uploads(db: Session) -> int:
     """보관기간이 지난 업로드 원본 파일 삭제 (양식의 매핑 정보는 남겨 재구성 가능)."""
     rows = db.scalars(select(Template).where(Template.kind == "uploaded", Template.expires_at < datetime.utcnow(), Template.source_path.is_not(None))).all()
     for t in rows:
-        Path(t.source_path).unlink(missing_ok=True)
-        if t.source_type == 'hwp':
-            Path(t.source_path).with_suffix('.hwpx').unlink(missing_ok=True)
+        remove(db, t)
         db.add(AuditLog(user_id=t.owner_id, action="file_purge", detail=f"보관기간 경과로 '{t.name}' 원본 삭제"))
         t.source_path = None
     db.commit()
@@ -84,17 +83,20 @@ def purge_expired_uploads(db: Session) -> int:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(engine)
-    ensure_company_columns()
-    ensure_contract_columns()
+    if not settings.CLOUD_MODE:
+        Base.metadata.create_all(engine)
+        ensure_company_columns()
+        ensure_contract_columns()
     with SessionLocal() as db:
-        seed_builtin_templates(db)
+        if not settings.CLOUD_MODE:
+            seed_builtin_templates(db)
         n = purge_expired_uploads(db)
     log.info("AI 모드: %s / 만료 원본 삭제 %d건", "LLM" if settings.ai_enabled else "규칙 기반", n)
     yield
 
 
 app = FastAPI(title="계약·행정서류 자동화 API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(TemporaryFilesMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=settings.CORS_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"], expose_headers=["Content-Disposition"])
 
 API = "/api/v1"
@@ -103,8 +105,10 @@ for r in (auth.router, company.router, contracts.router, documents.router, templ
 
 
 @app.get(f"{API}/health")
-def health():
-    return {"status": "ok", "ai_mode": "llm" if settings.ai_enabled else "rule", "mail_mode": "smtp" if settings.SMTP_HOST else "mock"}
+def health(db: Session = Depends(get_db)):
+    db.execute(text("SELECT 1"))
+    return {"status": "ok", "ai_mode": "llm" if settings.ai_enabled else "rule", "mail_mode": "smtp" if settings.SMTP_HOST else "mock", "cloud_mode": settings.CLOUD_MODE,
+            "limits": {"upload_mb": settings.MAX_UPLOAD_MB, "hwp_conversion": not settings.CLOUD_MODE, "uploaded_hangul_pdf": not settings.CLOUD_MODE}}
 
 
 @app.get(f"{API}/audit-logs")

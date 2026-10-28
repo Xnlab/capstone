@@ -18,6 +18,7 @@ from app.services import ai, form_parser, renderer
 from app.services.documents import template_keys, output_format
 from app.services.pdf_forms import positioned, validate_locations
 from app.standard_fields import STANDARD_FIELDS
+from app.services.source_storage import persist, resolve, remove, track
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -260,6 +261,8 @@ async def upload_template(file: UploadFile = File(...), organization_library: bo
     ext = Path(file.filename or "").suffix.lower().lstrip(".")
     if ext not in ("docx", "pdf", "hwp", "hwpx"):
         raise HTTPException(400, "한글(.hwp, .hwpx), Word(.docx), PDF 파일을 업로드하세요.")
+    if settings.CLOUD_MODE and ext == "hwp":
+        raise HTTPException(400, "무료 웹 버전은 HWP 변환 서버가 없습니다. 한글에서 HWPX로 저장한 뒤 업로드하세요.")
     data = await file.read(settings.MAX_UPLOAD_MB * 1024 * 1024 + 1)
     if len(data) > settings.MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(400, f"파일은 {settings.MAX_UPLOAD_MB}MB 이하여야 합니다.")
@@ -268,6 +271,8 @@ async def upload_template(file: UploadFile = File(...), organization_library: bo
     user_dir.mkdir(parents=True, exist_ok=True)
     path = user_dir / f"{uuid.uuid4().hex}.{ext}"
     path.write_bytes(data)
+    if settings.CLOUD_MODE:
+        track(path)
 
     try:
         analysis_path, analysis_type = path, ext
@@ -296,7 +301,7 @@ async def upload_template(file: UploadFile = File(...), organization_library: bo
         owner_id=user.id, kind="uploaded", name=name, category="자체 양식",
         description=f"업로드한 {ext.upper()} 양식 ({analysis.get('title') or name})",
         definition={"title": analysis.get("title") or name, "library": {"scope": "organization" if organization_library else "private"}}, fields=fields,
-        source_path=str(path), source_type=ext, status="analyzing",
+        source_path=persist(db, path, user.id), source_type=ext, status="analyzing",
         expires_at=None if organization_library else datetime.utcnow() + timedelta(days=settings.UPLOAD_RETENTION_DAYS),
     )
     db.add(t)
@@ -367,7 +372,8 @@ def publish(template_id: int, body: LibraryPublishIn, user: User = Depends(get_c
         raise HTTPException(400, "발주처·서류 종류·출처·버전·이용 조건을 입력하세요.")
     if not all((body.mapping_checked, body.output_checked, body.rights_checked)) or not info.get("review_note"):
         raise HTTPException(400, "매핑·출력·이용 조건을 확인하고 검토 메모를 남겨 주세요.")
-    if not t.source_path or not Path(t.source_path).is_file() or (t.source_type not in ('docx', 'hwp', 'hwpx') and not positioned(t)):
+    source = resolve(t)
+    if not source or not source.is_file() or (t.source_type not in ('docx', 'hwp', 'hwpx') and not positioned(t)):
         raise HTTPException(400, "지정 양식은 DOCX·HWP·HWPX 또는 입력 위치를 검토한 PDF가 필요합니다.")
     if positioned(t):
         validate_locations(t)
@@ -392,9 +398,10 @@ def review_preview(template_id: int, user: User = Depends(get_current_user), db:
 def original(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     from fastapi.responses import FileResponse
     t = get_visible(db, user, template_id)
-    if not t.source_path or not Path(t.source_path).is_file():
+    source = resolve(t)
+    if not source or not source.is_file():
         raise HTTPException(404, "보관된 원본이 없습니다.")
-    return FileResponse(t.source_path, filename=f"{t.name}.{t.source_type}")
+    return FileResponse(source, filename=f"{t.name}.{t.source_type}")
 
 
 @router.get("/{template_id}/sample-file")
@@ -421,10 +428,7 @@ def delete_template(template_id: int, user: User = Depends(get_current_user), db
         raise HTTPException(400, "기본 양식은 삭제할 수 없습니다.")
     if db.scalar(select(Document.id).where(Document.template_id == t.id).limit(1)):
         raise HTTPException(409, "이 양식으로 작성된 서류가 있어 삭제할 수 없습니다. 서류를 먼저 삭제하세요.")
-    if t.source_path:
-        Path(t.source_path).unlink(missing_ok=True)
-        if t.source_type == 'hwp':
-            Path(t.source_path).with_suffix('.hwpx').unlink(missing_ok=True)
+    remove(db, t)
     from sqlalchemy import delete
     db.execute(delete(TemplateFavorite).where(TemplateFavorite.template_id == t.id))
     db.add(AuditLog(user_id=user.id, action="file_delete", detail=f"자체 양식 '{t.name}' 삭제(사용자 요청)"))

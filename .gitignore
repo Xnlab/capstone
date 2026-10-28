@@ -6,3 +6,7 @@ output/pdf/
 __pycache__/
 .venv/
 .claude/
+.vercel/
+.env*
+!.env.example
+deploy-manifest.json

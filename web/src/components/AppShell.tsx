@@ -19,7 +19,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
-  const [health, setHealth] = useState<{ ai_mode: string; mail_mode: string } | null>(null);
+  const [health, setHealth] = useState<{ ai_mode: string; mail_mode: string; cloud_mode?: boolean } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     api.get<User>("/auth/me").then(setUser).catch(() => {});
-    api.get<{ ai_mode: string; mail_mode: string }>("/health").then(setHealth).catch(() => {});
+    api.get<{ ai_mode: string; mail_mode: string; cloud_mode?: boolean }>("/health").then(setHealth).catch(() => {});
   }, [router]);
 
   const logout = () => {
@@ -89,7 +89,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </button>
           <span className="font-semibold">{APP_NAME}</span>
         </header>
-        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">{children}</main>
+        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">
+          {health?.cloud_mode && <div role="note" className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">무료 체험 버전 · 업로드는 파일당 3MB, 계정당 20개입니다. HWP는 HWPX로 저장 후 업로드하세요. 기본 양식 미리보기는 지원하며, 업로드한 한글 양식은 HWPX 다운로드로 확인하세요. AI는 규칙 기반이며 메일은 실제 발송되지 않습니다. 실제 민감정보 입력은 피해주세요.</div>}
+          {children}
+        </main>
       </div>
     </div>
   );

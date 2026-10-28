@@ -12,3 +12,5 @@ reportlab
 PyMuPDF
 Pillow>=10
 openai
+psycopg[binary]==3.2.13
+certifi

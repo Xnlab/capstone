@@ -11,6 +11,8 @@ from app.services import ai, renderer
 from app.services.pdf_forms import positioned, fill_pdf
 from app.services.professional_renderer import render_native
 from app.standard_fields import base_values
+from app.core.config import settings
+from app.services.source_storage import resolve
 
 
 def template_keys(t: Template) -> list[str]:
@@ -72,8 +74,10 @@ def build_docx(doc: Document):
         raise HTTPException(400, "원본 PDF 지정 양식은 PDF 형식으로 출력하세요.")
     if t.kind == "builtin":
         return renderer.render_builtin_docx(t.definition, doc.values, seal=document_seal(doc))
-    if t.source_type == "docx" and t.source_path and Path(t.source_path).exists():
-        return renderer.fill_uploaded_docx(Path(t.source_path), t.fields, doc.values)
+    if t.source_type == "docx" and t.source_path:
+        path = resolve(t)
+        if path and path.exists():
+            return renderer.fill_uploaded_docx(path, t.fields, doc.values)
     if t.source_type in ('hwp', 'hwpx'):
         from app.services.hwpx_forms import editable_path, project_docx
         return project_docx(editable_path(t), t.fields, doc.values)
@@ -122,6 +126,9 @@ def build_pdf(doc: Document) -> bytes:
         return fill_pdf(doc.template, doc.values)
     if doc.template.source_type in ('hwp', 'hwpx'):
         from app.services.hancom import pdf_bytes
+        if settings.CLOUD_MODE:
+            from fastapi import HTTPException
+            raise HTTPException(503, "무료 웹 버전은 업로드 한글 원본의 PDF 미리보기를 지원하지 않습니다. HWPX를 다운로드해 한글에서 확인하세요.")
         return pdf_bytes(build_native(doc)[0])
     return renderer.docx_to_pdf_bytes(build_docx(doc))
 

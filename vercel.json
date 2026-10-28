@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "web": { "root": "web", "framework": "nextjs" },
+    "api": { "root": "server", "framework": "fastapi", "entrypoint": "main:app", "buildCommand": "python scripts/fetch_font.py", "functions": { "main.py": { "maxDuration": 60, "includeFiles": "{fonts/**,app/assets/**,certs/**}" } } }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "api" } },
+    { "source": "/(.*)", "destination": { "service": "web" } }
+  ],
+  "headers": [{ "source": "/api/(.*)", "headers": [{ "key": "Cache-Control", "value": "no-store" }, { "key": "X-Content-Type-Options", "value": "nosniff" }] }]
+}
