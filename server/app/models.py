@@ -4,6 +4,7 @@ from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.encryption import EncryptedText, EncryptedJSON, EncryptedBytes
 
 
 class User(Base):
@@ -25,19 +26,19 @@ class Company(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
-    company_name: Mapped[str] = mapped_column(String(100), default="")
-    representative: Mapped[str] = mapped_column(String(50), default="")
-    business_number: Mapped[str] = mapped_column(String(20), default="")
-    address: Mapped[str] = mapped_column(String(200), default="")
-    phone: Mapped[str] = mapped_column(String(30), default="")
-    email: Mapped[str] = mapped_column(String(120), default="")
-    manager_name: Mapped[str] = mapped_column(String(50), default="")
-    business_type: Mapped[str] = mapped_column(String(100), default="")
-    business_item: Mapped[str] = mapped_column(String(100), default="")
-    bank_name: Mapped[str] = mapped_column(String(50), default="")
-    account_number: Mapped[str] = mapped_column(String(50), default="")
-    account_holder: Mapped[str] = mapped_column(String(100), default="")
-    seal_image: Mapped[str] = mapped_column(Text, default="")  # Normalized PNG data URI, owner-only.
+    company_name: Mapped[str] = mapped_column(EncryptedText, default="")
+    representative: Mapped[str] = mapped_column(EncryptedText, default="")
+    business_number: Mapped[str] = mapped_column(EncryptedText, default="")
+    address: Mapped[str] = mapped_column(EncryptedText, default="")
+    phone: Mapped[str] = mapped_column(EncryptedText, default="")
+    email: Mapped[str] = mapped_column(EncryptedText, default="")
+    manager_name: Mapped[str] = mapped_column(EncryptedText, default="")
+    business_type: Mapped[str] = mapped_column(EncryptedText, default="")
+    business_item: Mapped[str] = mapped_column(EncryptedText, default="")
+    bank_name: Mapped[str] = mapped_column(EncryptedText, default="")
+    account_number: Mapped[str] = mapped_column(EncryptedText, default="")
+    account_holder: Mapped[str] = mapped_column(EncryptedText, default="")
+    seal_image: Mapped[str] = mapped_column(EncryptedText, default="")  # Normalized PNG data URI, owner-only.
     seal_size_mm: Mapped[float] = mapped_column(Float, default=20)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -49,13 +50,13 @@ class Contract(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    contract_title: Mapped[str] = mapped_column(String(200))
-    client_name: Mapped[str] = mapped_column(String(100), default="")  # 발주처
+    contract_title: Mapped[str] = mapped_column(EncryptedText)
+    client_name: Mapped[str] = mapped_column(EncryptedText, default="")  # 발주처
     amount: Mapped[int] = mapped_column(Integer, default=0)  # 계약금액(부가세 포함, 원)
     contract_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    description: Mapped[str] = mapped_column(Text, default="")  # 업무내용
+    description: Mapped[str] = mapped_column(EncryptedText, default="")  # 업무내용
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="contract", cascade="all, delete-orphan")
@@ -71,14 +72,14 @@ class Template(Base):
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     kind: Mapped[str] = mapped_column(String(20), default="builtin")  # builtin | uploaded
     key: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)  # builtin 식별자
-    name: Mapped[str] = mapped_column(String(100))
+    name: Mapped[str] = mapped_column(EncryptedText)
     category: Mapped[str] = mapped_column(String(50), default="기타")
-    description: Mapped[str] = mapped_column(String(300), default="")
-    aliases: Mapped[list] = mapped_column(JSON, default=list)
+    description: Mapped[str] = mapped_column(EncryptedText, default="")
+    aliases: Mapped[list] = mapped_column(EncryptedJSON, default=list)
     # builtin: 렌더링 정의(title/table/body...) / uploaded: 파일 형식 정보
-    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    definition: Mapped[dict] = mapped_column(EncryptedJSON, default=dict)
     # [{label, field_key, location, confidence}]
-    fields: Mapped[list] = mapped_column(JSON, default=list)
+    fields: Mapped[list] = mapped_column(EncryptedJSON, default=list)
     source_path: Mapped[str | None] = mapped_column(String(300), nullable=True)
     source_type: Mapped[str | None] = mapped_column(String(10), nullable=True)  # docx | pdf | hwp | hwpx
     status: Mapped[str] = mapped_column(String(20), default="ready")  # analyzing | ready
@@ -94,8 +95,8 @@ class Document(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"), index=True)
     template_id: Mapped[int] = mapped_column(ForeignKey("templates.id"))
-    title: Mapped[str] = mapped_column(String(150))
-    values: Mapped[dict] = mapped_column(JSON, default=dict)  # field_key -> 값 (사용자 수정 반영)
+    title: Mapped[str] = mapped_column(EncryptedText)
+    values: Mapped[dict] = mapped_column(EncryptedJSON, default=dict)  # field_key -> 값 (사용자 수정 반영)
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | reviewed
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -112,7 +113,7 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     action: Mapped[str] = mapped_column(String(50))
-    detail: Mapped[str] = mapped_column(Text, default="")
+    detail: Mapped[str] = mapped_column(EncryptedText, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -128,5 +129,34 @@ class StoredFile(Base):
     __tablename__ = "stored_files"
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    data: Mapped[bytes] = mapped_column(LargeBinary)
+    data: Mapped[bytes] = mapped_column(EncryptedBytes)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class LibraryAdmin(Base):
+    """Explicit reviewed user IDs; registering a matching email grants no role."""
+    __tablename__ = "library_admins"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+
+
+class AuthThrottle(Base):
+    __tablename__ = "auth_throttles"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class SensitiveGrant(Base):
+    __tablename__ = "sensitive_grants"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_hash: Mapped[str] = mapped_column(ForeignKey("auth_sessions.token_hash", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(100))
+    expires_at: Mapped[datetime] = mapped_column(DateTime)

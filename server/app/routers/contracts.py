@@ -2,13 +2,13 @@ import io
 import zipfile
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_sensitive
 from app.models import AuditLog, Contract, Document, User
 from app.routers.company import get_or_create_company
 from app.routers.templates import get_visible
@@ -25,8 +25,8 @@ router = APIRouter(prefix="/contracts", tags=["contracts"])
 
 def get_owned(db: Session, user: User, contract_id: int) -> Contract:
     """접근 통제: 본인 계약만 조회 가능 (3주차 보안 ④)."""
-    c = db.get(Contract, contract_id)
-    if not c or c.user_id != user.id:
+    c = db.scalar(select(Contract).where(Contract.id == contract_id, Contract.user_id == user.id))
+    if not c:
         raise HTTPException(404, "계약을 찾을 수 없습니다.")
     return c
 
@@ -147,26 +147,31 @@ def _render_files(docs: list[Document], fmt: str) -> list[tuple[str, bytes, str]
 
 
 @router.get("/{contract_id}/export")
-def export_zip(contract_id: int, format: str = "native", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def export_zip(contract_id: int, request: Request, format: str = "native", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = get_owned(db, user, contract_id)
     docs = sorted(c.documents, key=lambda d: d.id)
     if not docs:
         raise HTTPException(400, "작성된 서류가 없습니다.")
+    if user.company and user.company.seal_image and any(d.template.kind == "builtin" for d in docs):
+        require_sensitive(request, db, user, f"contract:{c.id}:export")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data, _ in _render_files(docs, format):
             z.writestr(name, data)
     buf.seek(0)
+    db.add(AuditLog(user_id=user.id, action="document_export", detail=f"contract:{c.id}")); db.commit()
     fname = quote(f"{safe_filename(c.contract_title)}_제출서류.zip")
     return StreamingResponse(buf, media_type="application/zip", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
 
 
 @router.post("/{contract_id}/mail")
-def mail_documents(contract_id: int, body: MailIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def mail_documents(contract_id: int, body: MailIn, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     c = get_owned(db, user, contract_id)
     docs = [d for d in sorted(c.documents, key=lambda d: d.id) if d.id in set(body.document_ids)]
     if not docs:
         raise HTTPException(400, "보낼 서류를 선택하세요.")
+    if user.company and user.company.seal_image and any(d.template.kind == "builtin" for d in docs):
+        require_sensitive(request, db, user, f"contract:{c.id}:mail")
     company = get_or_create_company(db, user)
     subject = body.subject or f"[{company.company_name or '제출'}] {c.contract_title} 관련 서류 제출"
     text = body.body or f"안녕하세요. {c.contract_title} 관련 서류를 첨부하여 제출합니다.\n\n첨부: " + ", ".join(d.title for d in docs)

@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [{ "path": "/api/v1/internal/maintenance", "schedule": "0 3 * * *" }],
   "services": {
     "web": { "root": "web", "framework": "nextjs" },
     "api": { "root": "server", "framework": "fastapi", "entrypoint": "main:app", "buildCommand": "python scripts/fetch_font.py", "functions": { "main.py": { "maxDuration": 60, "includeFiles": "{fonts/**,app/assets/**,certs/**}" } } }

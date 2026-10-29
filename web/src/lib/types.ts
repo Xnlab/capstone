@@ -3,6 +3,7 @@ export type User = { id: number; email: string; name: string };
 export type Company = {
   seal_image: string;
   seal_size_mm: number;
+  has_seal: boolean;
   company_name: string;
   representative: string;
   business_number: string;

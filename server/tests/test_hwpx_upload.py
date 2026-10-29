@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
-from app.core.security import create_access_token
+from tests.auth_helpers import auth_headers
 from app.core.config import settings
 from app.models import User
 from app.professional_templates import BUILTIN_TEMPLATES
@@ -101,7 +101,8 @@ class HwpxUploadTests(unittest.TestCase):
         try:
             with TemporaryDirectory() as folder, patch.object(settings, 'UPLOAD_DIR', Path(folder)), patch.object(settings, 'OPENAI_API_KEY', ''):
                 client = TestClient(app)
-                headers = {'Authorization': 'Bearer ' + create_access_token(uid)}
+                with Session(engine) as db:
+                    headers = auth_headers(db, uid)
                 payload = fixture()
                 response = client.post('/api/v1/templates/upload', headers=headers, files={'file': ('양식.hwpx', payload, 'application/hwp+zip')})
                 self.assertEqual(response.status_code, 200, response.text)

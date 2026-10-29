@@ -6,7 +6,7 @@ import { useQueryParam } from "@/lib/hooks";
 import type { Company } from "@/lib/types";
 import { Button, Card, CardHeader, ErrorText, Field, Input, Loading, PageHeader } from "@/components/ui";
 
-const FIELDS: { key: Exclude<keyof Company, "seal_image" | "seal_size_mm">; label: string; placeholder: string; required?: boolean; hint?: string }[] = [
+const FIELDS: { key: Exclude<keyof Company, "seal_image" | "seal_size_mm" | "has_seal">; label: string; placeholder: string; required?: boolean; hint?: string }[] = [
   { key: "company_name", label: "회사명(상호)", placeholder: "(주)마코", required: true },
   { key: "representative", label: "대표자명", placeholder: "홍길동", required: true },
   { key: "business_number", label: "사업자등록번호", placeholder: "123-45-67890", required: true, hint: "000-00-00000 형식" },
@@ -59,7 +59,7 @@ export default function CompanyPage() {
     setSealError("");
     try {
       const company = await action();
-      setForm((previous) => previous && { ...previous, seal_image: company.seal_image, seal_size_mm: company.seal_size_mm });
+      setForm((previous) => previous && { ...previous, seal_image: company.seal_image, has_seal: company.has_seal, seal_size_mm: company.seal_size_mm });
       setSealSize(company.seal_size_mm);
     } catch (err) {
       setSealError((err as Error).message);
@@ -98,7 +98,7 @@ export default function CompanyPage() {
         </Card>
       </form>
       <Card className="mt-5">
-        <CardHeader title="회사 도장" desc="등록한 도장을 기본 서류의 대표자 (인) 위치에 자동으로 넣습니다. 이미 작성한 서류에도 적용됩니다." />
+        <CardHeader title="회사 도장" desc="일반 미리보기에는 인감을 넣지 않습니다. 인감 관리와 인감 포함 출력·발송에는 작업별 비밀번호 확인이 필요합니다." />
         <div className="grid gap-6 p-5 sm:grid-cols-[1fr_260px]">
           <div className="space-y-4">
             <Field label="도장 이미지" hint="PNG·JPEG, 최대 3MB. 여백이 적은 투명 PNG를 권장합니다.">
@@ -112,15 +112,20 @@ export default function CompanyPage() {
               <div className="flex items-center gap-3">
                 <Input type="number" min={10} max={30} step={1} value={sealSize} disabled={sealBusy} className="max-w-24" onChange={(e) => setSealSize(Number(e.target.value))} />
                 <span className="text-sm text-muted">mm</span>
-                <Button variant="secondary" disabled={!form.seal_image || sealBusy || !Number.isFinite(sealSize) || sealSize < 10 || sealSize > 30} onClick={() => updateSeal(() => api.put<Company>("/company/seal", { size_mm: sealSize }))}>크기 저장</Button>
+                <Button variant="secondary" disabled={!form.has_seal || sealBusy || !Number.isFinite(sealSize) || sealSize < 10 || sealSize > 30} onClick={() => updateSeal(() => api.put<Company>("/company/seal", { size_mm: sealSize }))}>크기 저장</Button>
               </div>
             </Field>
-            {form.seal_image && <Button variant="secondary" disabled={sealBusy} onClick={() => updateSeal(() => api.del<Company>("/company/seal"))}>도장 등록 해제</Button>}
+            {form.has_seal && <Button variant="secondary" disabled={sealBusy} onClick={() => updateSeal(() => api.del<Company>("/company/seal"))}>도장 등록 해제</Button>}
             {sealBusy && <p className="text-sm text-muted" role="status">도장을 저장하고 있습니다…</p>}
             <ErrorText>{sealError}</ErrorText>
           </div>
           <div className="rounded-lg border border-line bg-slate-50 p-4">
-            <div className="mb-4 text-xs text-muted">날인 배치 미리보기</div>
+            <div className="mb-4 text-xs text-muted">인감은 기본적으로 숨겨집니다.</div>
+            {form.has_seal && !form.seal_image && <Button variant="secondary" onClick={async () => {
+              try { const result = await api.get<{ seal_image: string }>("/company/seal"); setForm({ ...form, seal_image: result.seal_image }); }
+              catch (e) { setSealError((e as Error).message); }
+            }}>비밀번호 확인 후 인감 보기</Button>}
+            {form.seal_image && <Button variant="secondary" onClick={() => setForm({ ...form, seal_image: "" })}>인감 숨기기</Button>}
             <div className="flex min-h-32 items-center justify-end gap-3 rounded bg-white px-3">
               <span className="text-sm">대표자 : {form.representative || "대표자명"}</span>
               <span className="relative flex shrink-0 items-center justify-center" style={{ width: `${Math.min(30, Math.max(10, sealSize || 20))}mm`, height: `${Math.min(30, Math.max(10, sealSize || 20))}mm` }}>

@@ -1,4 +1,6 @@
 import tempfile
+import os
+from cryptography.fernet import Fernet
 import unittest
 import uuid
 from datetime import datetime, timedelta
@@ -15,6 +17,13 @@ from app.services.source_storage import persist, resolve, remove, request_files
 
 
 class CloudStorageTests(unittest.TestCase):
+    def setUp(self):
+        from app.core.encryption import cipher
+        self.key = patch.dict(os.environ, {"DATA_ENCRYPTION_KEYS": Fernet.generate_key().decode()})
+        self.key.start(); cipher.cache_clear()
+        self.addCleanup(self.key.stop)
+        self.addCleanup(cipher.cache_clear)
+
     def test_source_survives_local_file_removal_and_deleted_source_is_not_cached(self):
         engine = create_engine("sqlite://")
         Base.metadata.create_all(engine)

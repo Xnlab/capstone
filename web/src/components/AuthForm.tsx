@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { api, setToken } from "@/lib/api";
+import { api, clearSession } from "@/lib/api";
 import { APP_NAME, Button, ErrorText, Field, Input } from "./ui";
 
 export default function AuthForm({ mode }: { mode: "login" | "register" }) {
@@ -18,8 +18,8 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
     setError("");
     setLoading(true);
     try {
-      const res = await api.post<{ access_token: string }>(`/auth/${mode}`, isRegister ? form : { email: form.email, password: form.password });
-      setToken(res.access_token);
+      clearSession();
+      await api.post(`/auth/${mode}`, isRegister ? form : { email: form.email, password: form.password });
       router.replace(isRegister ? "/company?welcome=1" : "/dashboard");
     } catch (err) {
       setError((err as Error).message);

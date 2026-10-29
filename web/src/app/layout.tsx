@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import ReauthDialog from "@/components/ReauthDialog";
 
 export const metadata: Metadata = {
   title: "AI 계약·행정서류 자동화",
@@ -15,7 +16,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
         />
       </head>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">{children}<ReauthDialog /></body>
     </html>
   );
 }

@@ -21,11 +21,6 @@ class LoginIn(BaseModel):
     password: str
 
 
-class TokenOut(BaseModel):
-    access_token: str
-    user: "UserOut"
-
-
 class UserOut(ORM):
     id: int
     email: str
@@ -53,6 +48,7 @@ class CompanyOut(CompanyIn, ORM):
     updated_at: datetime
     seal_image: str = ""
     seal_size_mm: float = 20
+    has_seal: bool = False
 
 
 class SealSizeIn(BaseModel):
@@ -172,6 +168,3 @@ class MailIn(BaseModel):
     body: str = ""
     document_ids: list[int]
     format: str = "native"  # native | pdf | both
-
-
-TokenOut.model_rebuild()

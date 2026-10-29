@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
-from app.core.security import create_access_token, hash_password
+from app.core.security import create_access_token, hash_password, csrf_token, SESSION_COOKIE
 from app.models import Company, Contract, Document, Template, User
 from app.services.library import is_admin
 from main import app
@@ -38,13 +38,16 @@ def main():
     with SessionLocal() as db:
         admin = next((u for u in db.scalars(select(User)) if is_admin(u)), None)
         if not admin:
-            raise RuntimeError("LIBRARY_ADMIN_EMAILS를 설정하세요.")
+            raise RuntimeError("승인된 library_admins 사용자 ID가 필요합니다.")
         tester = db.scalar(select(User).where(User.email == "real-form-verification@example.invalid"))
         if not tester:
             tester = User(email="real-form-verification@example.invalid", name="자동작성 검증용", password_hash=hash_password(secrets.token_urlsafe(24)))
             db.add(tester); db.flush(); db.add(Company(user_id=tester.id)); db.commit()
-        admin_headers = {"Authorization": "Bearer " + create_access_token(admin.id)}
-        tester_headers = {"Authorization": "Bearer " + create_access_token(tester.id)}
+        admin_token = create_access_token(admin.id, db)
+        tester_token = create_access_token(tester.id, db)
+        db.commit()
+        admin_headers = {"Cookie": f"{SESSION_COOKIE}={admin_token}", "X-CSRF-Token": csrf_token(admin_token)}
+        tester_headers = {"Cookie": f"{SESSION_COOKIE}={tester_token}", "X-CSRF-Token": csrf_token(tester_token)}
         tester_id = tester.id
 
     report = []

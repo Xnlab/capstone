@@ -117,8 +117,9 @@ def build_native(doc: Document) -> tuple[bytes, str, str]:
 
 
 def document_seal(doc: Document):
+    from app.core.render_security import seal_authorized
     from app.services.seal import company_seal
-    return company_seal(doc.contract.user.company) if doc.contract else None
+    return company_seal(doc.contract.user.company) if doc.contract and seal_authorized.get() else None
 
 
 def build_pdf(doc: Document) -> bytes:

@@ -10,6 +10,7 @@ import sys
 import uuid
 import urllib.error
 import urllib.request
+from http.cookies import SimpleCookie
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -25,7 +26,9 @@ users = []
 def call(method, route, data=None, token=None, raw=None, content_type=None, expected=200):
     headers = {}
     if token:
-        headers["Authorization"] = "Bearer " + token
+        headers["Cookie"] = token["cookie"]
+        if method not in ("GET", "HEAD", "OPTIONS"):
+            headers["X-CSRF-Token"] = token["csrf_token"]
     body = raw
     if data is not None:
         body = json.dumps(data).encode()
@@ -37,7 +40,13 @@ def call(method, route, data=None, token=None, raw=None, content_type=None, expe
         with urllib.request.urlopen(req, timeout=60) as res:
             result = res.read()
             assert res.status == expected, (route, res.status)
-            return json.loads(result) if "application/json" in res.headers.get("Content-Type", "") else result
+            parsed = json.loads(result) if "application/json" in res.headers.get("Content-Type", "") else result
+            if route in ("/auth/register", "/auth/login"):
+                cookies = SimpleCookie(res.headers.get("Set-Cookie", ""))
+                session = next((item for name, item in cookies.items() if name.endswith("cdoc_session")), None)
+                assert session is not None, "HttpOnly session cookie missing"
+                parsed["_session"] = {"cookie": session.key + "=" + session.value, "csrf_token": parsed["csrf_token"]}
+            return parsed
     except urllib.error.HTTPError as error:
         if error.code == expected:
             return None
@@ -57,7 +66,7 @@ try:
     for index in range(2):
         account = call("POST", "/auth/register", {"email": f"smoke-{suffix}-{index}@cloud-smoke.invalid", "password": password, "name": "배포 검증용 임시 사용자"})
         users.append(account)
-    token, other = users[0]["access_token"], users[1]["access_token"]
+    token, other = users[0]["_session"], users[1]["_session"]
     logged = call("POST", "/auth/login", {"email": users[0]["user"]["email"], "password": password})
     assert logged["user"]["id"] == users[0]["user"]["id"]
     call("GET", "/contracts", expected=401)

@@ -6,7 +6,10 @@ from app.core.config import settings
 
 
 def is_admin(user):
-    return user.email.lower() in settings.LIBRARY_ADMIN_EMAILS
+    from sqlalchemy.orm import object_session
+    from app.models import LibraryAdmin
+    db = object_session(user)
+    return db is not None and db.get(LibraryAdmin, user.id) is not None
 
 
 def require_admin(user):

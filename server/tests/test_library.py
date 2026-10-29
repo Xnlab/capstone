@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.security import get_current_user
-from app.models import Contract, Document, Template, User
+from app.models import Contract, Document, Template, User, LibraryAdmin
 from app.routers import contracts, templates
 
 
@@ -25,6 +25,7 @@ class LibraryTests(unittest.TestCase):
         self.admin = User(email="admin@example.test", password_hash="unused")
         self.user = User(email="member@example.test", password_hash="unused")
         self.db.add_all([self.admin, self.user]); self.db.commit()
+        self.db.add(LibraryAdmin(user_id=self.admin.id)); self.db.commit()
         self.current = self.admin
         self.patch = patch.object(settings, "LIBRARY_ADMIN_EMAILS", {self.admin.email})
         self.patch.start()

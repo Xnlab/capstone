@@ -42,5 +42,7 @@ class Settings:
 settings = Settings()
 if settings.CLOUD_MODE and (not os.getenv("SECRET_KEY") or not os.getenv("DATABASE_URL") or not settings.DATABASE_SCHEMA):
     raise RuntimeError("Cloud deployment requires SECRET_KEY, DATABASE_URL and DATABASE_SCHEMA.")
+if settings.CLOUD_MODE and len(settings.SECRET_KEY.encode()) < 32:
+    raise RuntimeError("Cloud SECRET_KEY must be a unique random secret of at least 32 bytes.")
 for d in (settings.STORAGE_DIR, settings.UPLOAD_DIR, settings.OUTPUT_DIR):
     d.mkdir(parents=True, exist_ok=True)

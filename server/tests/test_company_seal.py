@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
-from app.core.security import create_access_token
+from app.core.security import hash_password
+from tests.auth_helpers import PASSWORD, auth_headers, approve
 from app.models import User, Company, Contract, Template, Document
 from app.professional_templates import BUILTIN_TEMPLATES
 from app.routers.templates import SAMPLE_VALUES
@@ -39,7 +40,7 @@ class CompanySealTests(unittest.TestCase):
         engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
         Base.metadata.create_all(engine)
         with Session(engine) as db:
-            users = [User(email=f'seal-{i}@example.com', password_hash='test-only') for i in (1, 2)]
+            users = [User(email=f'seal-{i}@example.com', password_hash=hash_password(PASSWORD)) for i in (1, 2)]
             db.add_all(users)
             db.flush()
             ids = [user.id for user in users]
@@ -58,29 +59,31 @@ class CompanySealTests(unittest.TestCase):
         app.dependency_overrides[get_db] = session
         try:
             client = TestClient(app)
-            headers = [{'Authorization': 'Bearer ' + create_access_token(i)} for i in ids]
+            with Session(engine) as db:
+                headers = [auth_headers(db, i) for i in ids]
             self.assertEqual(client.post('/api/v1/company/seal', files={'file': ('seal.png', sample_seal(), 'image/png')}).status_code, 401)
-            bad = client.post('/api/v1/company/seal', headers=headers[0], files={'file': ('seal.png', b'<svg/>', 'image/png')})
+            bad = client.post('/api/v1/company/seal', headers=approve(client, headers[0], 'seal:manage'), files={'file': ('seal.png', b'<svg/>', 'image/png')})
             self.assertEqual(bad.status_code, 400)
-            oversized = client.post('/api/v1/company/seal', headers=headers[0], files={'file': ('seal.png', b'x' * (3 * 1024 * 1024 + 1), 'image/png')})
+            oversized = client.post('/api/v1/company/seal', headers=approve(client, headers[0], 'seal:manage'), files={'file': ('seal.png', b'x' * (3 * 1024 * 1024 + 1), 'image/png')})
             self.assertEqual(oversized.status_code, 400)
-            response = client.post('/api/v1/company/seal', headers=headers[0], files={'file': ('seal.png', sample_seal(), 'image/png')})
+            response = client.post('/api/v1/company/seal', headers=approve(client, headers[0], 'seal:manage'), files={'file': ('seal.png', sample_seal(), 'image/png')})
             self.assertEqual(response.status_code, 200, response.text)
-            self.assertTrue(response.json()['seal_image'].startswith('data:image/png;base64,'))
+            self.assertTrue(response.json()['has_seal'])
+            self.assertEqual(response.json()['seal_image'], '')
             other = client.get('/api/v1/company', headers=headers[1])
             self.assertEqual(other.json()['seal_image'], '')
             self.assertEqual(client.get(f'/api/v1/documents/{doc_id}/preview-pages', headers=headers[1]).status_code, 404)
-            self.assertEqual(client.put('/api/v1/company/seal', headers=headers[0], json={'size_mm': 100}).status_code, 422)
-            resized = client.put('/api/v1/company/seal', headers=headers[0], json={'size_mm': 25})
+            self.assertEqual(client.put('/api/v1/company/seal', headers=approve(client, headers[0], 'seal:manage'), json={'size_mm': 100}).status_code, 422)
+            resized = client.put('/api/v1/company/seal', headers=approve(client, headers[0], 'seal:manage'), json={'size_mm': 25})
             self.assertEqual(resized.json()['seal_size_mm'], 25)
-            pdf = client.get(f'/api/v1/documents/{doc_id}/download?format=pdf', headers=headers[0])
+            pdf = client.get(f'/api/v1/documents/{doc_id}/download?format=pdf', headers=approve(client, headers[0], f'document:{doc_id}:download'))
             self.assertEqual(pdf.status_code, 200, pdf.text[:200])
             with pymupdf.open(stream=pdf.content, filetype='pdf') as output:
                 self.assertEqual(len(output), 2)
                 for page in output:
                     self.assertTrue(page.get_images())
                     self.assertIn('(인)', page.get_text())
-            removed = client.delete('/api/v1/company/seal', headers=headers[0])
+            removed = client.delete('/api/v1/company/seal', headers=approve(client, headers[0], 'seal:manage'))
             self.assertEqual(removed.json()['seal_image'], '')
             pdf = client.get(f'/api/v1/documents/{doc_id}/download?format=pdf', headers=headers[0])
             with pymupdf.open(stream=pdf.content, filetype='pdf') as output:

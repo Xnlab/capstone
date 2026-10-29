@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.security import get_current_user
 from app.models import AuditLog, Template, User
-from app.routers import auth, company, contracts, documents, templates
+from app.routers import auth, company, contracts, documents, templates, privacy
 from app.services.source_storage import TemporaryFilesMiddleware, remove
 
 logging.basicConfig(level=logging.INFO)
@@ -83,6 +83,8 @@ def purge_expired_uploads(db: Session) -> int:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from app.core.encryption import cipher
+    cipher()  # Fail closed if encryption keys are missing or invalid.
     if not settings.CLOUD_MODE:
         Base.metadata.create_all(engine)
         ensure_company_columns()
@@ -92,16 +94,77 @@ async def lifespan(_: FastAPI):
             seed_builtin_templates(db)
         n = purge_expired_uploads(db)
     log.info("AI 모드: %s / 만료 원본 삭제 %d건", "LLM" if settings.ai_enabled else "규칙 기반", n)
-    yield
+    import asyncio
+    async def periodic_cleanup():
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                def run():
+                    with SessionLocal() as session:
+                        maintenance(session)
+                await asyncio.to_thread(run)
+            except Exception:
+                log.error("Scheduled cleanup failed; inspect server/database health.")
+    task = asyncio.create_task(periodic_cleanup()) if not settings.CLOUD_MODE else None
+    try:
+        yield
+    finally:
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="계약·행정서류 자동화 API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(TemporaryFilesMiddleware)
-app.add_middleware(CORSMiddleware, allow_origins=settings.CORS_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"], expose_headers=["Content-Disposition"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.CORS_ORIGINS, allow_credentials=True, allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-CSRF-Token", "X-Sensitive-Grant"], expose_headers=["Content-Disposition", "X-Reauthentication-Scope"])
 
 API = "/api/v1"
-for r in (auth.router, company.router, contracts.router, documents.router, templates.router):
+for r in (auth.router, company.router, contracts.router, documents.router, templates.router, privacy.router):
     app.include_router(r, prefix=API)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
+def maintenance(db):
+    from sqlalchemy import delete
+    from datetime import timedelta
+    from app.models import AuthSession, AuthThrottle, SensitiveGrant
+    now = datetime.utcnow()
+    count = purge_expired_uploads(db)
+    db.execute(delete(SensitiveGrant).where(SensitiveGrant.expires_at < now))
+    expired = select(AuthSession.token_hash).where(AuthSession.expires_at < now)
+    db.execute(delete(SensitiveGrant).where(SensitiveGrant.session_hash.in_(expired)))
+    db.execute(delete(AuthSession).where(AuthSession.expires_at < now))
+    db.execute(delete(AuthThrottle).where(AuthThrottle.window_start < now - timedelta(days=1)))
+    # Crash recovery: only generated temp files in the upload root, never originals in user folders.
+    for path in settings.UPLOAD_DIR.glob("tmp*"):
+        import time
+        if path.is_file() and path.stat().st_mtime < time.time() - 3600:
+            path.unlink(missing_ok=True)
+    db.commit()
+    return count
+
+
+@app.get(f"{API}/internal/maintenance")
+def scheduled_maintenance(request: Request, db: Session = Depends(get_db)):
+    import hmac
+    import os
+    from fastapi import HTTPException
+    secret = os.getenv("CRON_SECRET", "")
+    if len(secret) < 32 or not hmac.compare_digest(request.headers.get("authorization", ""), "Bearer " + secret):
+        raise HTTPException(401, "인증이 필요합니다.")
+    return {"purged": maintenance(db)}
 
 
 @app.get(f"{API}/health")

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { api, getToken, setToken } from "@/lib/api";
+import { api, clearSession } from "@/lib/api";
 import type { User } from "@/lib/types";
 import { APP_NAME } from "./ui";
 
@@ -23,17 +23,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
-    }
-    api.get<User>("/auth/me").then(setUser).catch(() => {});
+    api.get<User>("/auth/me").then(setUser).catch(() => router.replace("/login"));
     api.get<{ ai_mode: string; mail_mode: string; cloud_mode?: boolean }>("/health").then(setHealth).catch(() => {});
   }, [router]);
 
-  const logout = () => {
-    setToken(null);
-    router.replace("/login");
+  const logout = async () => {
+    try {
+      await api.post("/auth/logout");
+      clearSession();
+      router.replace("/login");
+    } catch { window.alert("로그아웃하지 못했습니다. 연결을 확인하고 다시 시도하세요."); }
   };
 
   const isActive = (href: string) =>

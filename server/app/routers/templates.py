@@ -92,7 +92,7 @@ def visible_templates(db: Session, user: User):
     if is_admin(user):
         rows = db.scalars(select(Template).order_by(Template.kind, Template.id)).all()
     return [t for t in rows if t.owner_id == user.id or (is_admin(user) and scope(t) == "organization") or
-            (t.owner_id is None and t.status == "ready")]
+            (t.owner_id is None and t.status == "ready" and (t.kind == "builtin" or scope(t) == "organization"))]
 
 
 def get_visible(db: Session, user: User, template_id: int) -> Template:
@@ -288,11 +288,11 @@ async def upload_template(file: UploadFile = File(...), organization_library: bo
         if ext == 'hwp':
             path.with_suffix('.hwpx').unlink(missing_ok=True)
         raise
-    except Exception as e:
+    except Exception:
         path.unlink(missing_ok=True)
         if ext == 'hwp':
             path.with_suffix('.hwpx').unlink(missing_ok=True)
-        raise HTTPException(400, f"양식을 분석하지 못했습니다: {e}")
+        raise HTTPException(400, "양식을 분석하지 못했습니다. 손상·암호화 여부와 지원 파일 형식을 확인하세요.")
 
     mapped, sent = ai.map_labels(analysis["items"])
     fields = [{**m, "context": it["context"], "location": it["location"]} for m, it in zip(mapped, analysis["items"])]

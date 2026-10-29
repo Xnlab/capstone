@@ -1,11 +1,11 @@
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_sensitive
 from app.models import AuditLog, Document, User
 from app.routers.company import get_or_create_company
 from app.schemas import DocumentUpdate
@@ -18,8 +18,10 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 def get_owned_doc(db: Session, user: User, document_id: int) -> Document:
-    d = db.get(Document, document_id)
-    if not d or d.contract.user_id != user.id:
+    from sqlalchemy import select
+    from app.models import Contract
+    d = db.scalar(select(Document).join(Contract).where(Document.id == document_id, Contract.user_id == user.id))
+    if not d:
         raise HTTPException(404, "서류를 찾을 수 없습니다.")
     return d
 
@@ -88,8 +90,10 @@ def preview_pages(document_id: int, user: User = Depends(get_current_user), db: 
 
 
 @router.get("/{document_id}/download")
-def download(document_id: int, format: str = "native", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def download(document_id: int, request: Request, format: str = "native", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     d = get_owned_doc(db, user, document_id)
+    if d.template.kind == "builtin" and user.company and user.company.seal_image:
+        require_sensitive(request, db, user, f"document:{d.id}:download")
     name = safe_filename(f"{d.contract.contract_title}_{d.title}")
     if format == "pdf":
         data, media, ext = build_pdf(d), "application/pdf", "pdf"
@@ -102,5 +106,6 @@ def download(document_id: int, format: str = "native", user: User = Depends(get_
         data, media, ext = renderer.docx_bytes(docx), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"
     else:
         raise HTTPException(400, "format은 native, pdf 또는 docx")
+    db.add(AuditLog(user_id=user.id, action="document_download", detail=f"document:{d.id}")); db.commit()
     return Response(data, media_type=media, headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name + '.' + ext)}"})
 
