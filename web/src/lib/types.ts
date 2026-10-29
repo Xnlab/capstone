@@ -42,11 +42,15 @@ export type TemplateField = {
   location: FieldLocation;
 };
 
+export type CustomPlanSection = { key: string; label: string; kind: "text" | "table"; columns: string[]; required: boolean };
+export type CustomPlanLayout = { title: string; sections: CustomPlanSection[] };
+
 export type Template = {
+  custom_plan?: { layout: CustomPlanLayout; request: string; reference: string; unofficial: boolean } | null;
   owner_id: number | null;
   library: LibraryMetadata;
   id: number;
-  kind: "builtin" | "uploaded";
+  kind: "builtin" | "uploaded" | "custom";
   name: string;
   category: string;
   description: string;
@@ -82,7 +86,7 @@ export type Doc = {
   title: string;
   values: Record<string, string>;
   status: "draft" | "reviewed";
-  template_kind: "builtin" | "uploaded";
+  template_kind: "builtin" | "uploaded" | "custom";
   output_format: "hwpx" | "xlsx" | "docx" | "pdf";
   field_keys: string[];
   missing: string[];

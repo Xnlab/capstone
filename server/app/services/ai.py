@@ -40,7 +40,7 @@ def _chat_json(system: str, user: str) -> dict | None:
         )
         return json.loads(res.choices[0].message.content or "{}")
     except Exception as e:  # 네트워크·키 오류 시 규칙 기반으로 폴백
-        log.warning("LLM 호출 실패, 규칙 기반으로 대체: %s", e)
+        log.warning("LLM 호출 실패, 규칙 기반으로 대체: %s", type(e).__name__)
         return None
 
 

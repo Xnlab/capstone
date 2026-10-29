@@ -130,7 +130,12 @@ export default function DocumentEditor() {
 
   const nativeLabel = doc.output_format === "xlsx" ? "Excel" : doc.output_format === "hwpx" ? "한글(HWPX)" : doc.output_format === "pdf" ? "원본 PDF" : "Word";
   const nativeExt = doc.output_format;
-  const completed = doc.field_keys.filter(k => String(values[k] ?? "").trim()).length;
+  const filled = (key: string) => {
+    const isTable = template?.custom_plan?.layout.sections.some(section => section.key === key && section.kind === "table");
+    const value = String(values[key] ?? "");
+    return Boolean((isTable ? value.replaceAll("|", "") : value).trim());
+  };
+  const completed = doc.field_keys.filter(filled).length;
 
   return (
     <>
@@ -155,6 +160,7 @@ export default function DocumentEditor() {
         }
       />
 
+      {doc.template_kind === "custom" && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">검토용 맞춤 초안입니다. 담당자·일정·산출물의 빈칸과 제안 문구를 확인하고, 제출 전 발주처 지정 서식 여부를 확인하세요.</p>}
       <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
         <Card className="min-w-0 self-start">
           <CardHeader
@@ -168,16 +174,18 @@ export default function DocumentEditor() {
           />
           <div className="max-h-[calc(100vh-280px)] space-y-4 overflow-y-auto p-5">
             {doc.field_keys.map((k) => {
-              const missing = doc.missing.includes(k) && !values[k];
+              const missing = doc.missing.includes(k) && !filled(k);
+              const section = template?.custom_plan?.layout.sections.find(section => section.key === k);
+              const table = section?.kind === "table";
               const orig = originalLabels[k]?.filter((l) => l !== labelOf(k));
               return (
                 <Field
                   key={k}
-                  label={labelOf(k) + (orig?.length ? ` · 양식상 “${orig.join(", ")}”` : "")}
-                  hint={missing ? "필수 항목이 비어 있습니다" : FIELD_HINT[k] ?? DERIVED_HINT[k]}
+                  label={section?.label ?? (labelOf(k) + (orig?.length ? ` · 양식상 “${orig.join(", ")}”` : ""))}
+                  hint={missing ? "필수 항목이 비어 있습니다" : table ? `한 줄에 한 행씩 입력하세요: ${section.columns.join(" | ")}` : FIELD_HINT[k] ?? DERIVED_HINT[k]}
                 >
                   <div className={`rounded-lg ${focus === k ? "ring-2 ring-amber-400 ring-offset-2" : ""}`}>
-                    {LONG_FIELDS.has(k) ? (
+                    {(LONG_FIELDS.has(k) || k.startsWith("custom_") || table) ? (
                       <Textarea id={`f-${k}`} rows={4} value={values[k] ?? ""} onChange={(e) => setValues({ ...values, [k]: e.target.value })} />
                     ) : (
                       <Input
@@ -188,7 +196,7 @@ export default function DocumentEditor() {
                       />
                     )}
                   </div>
-                  {k === "work_summary" && (
+                  {k === "work_summary" && doc.template_kind !== "custom" && (
                     <Button size="sm" variant="secondary" className="mt-2" onClick={() => generate(k)} loading={busy === k}>
                       ✦ AI로 다시 작성
                     </Button>

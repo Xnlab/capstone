@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import type { Template } from "@/lib/types";
 import { Badge, Button, Card, ErrorText, Input, Spinner } from "@/components/ui";
+import CustomPlanBuilder from "./CustomPlanBuilder";
 import { PastNoticeBadge } from "@/components/TemplateExtras";
 
 type SearchRes = { results: { template: Template; score: number; ai: boolean; reason: string }[]; ai_enabled: boolean };
@@ -12,6 +13,7 @@ type SearchRes = { results: { template: Template; score: number; ai: boolean; re
 const TABS = [
   { id: "search", label: "서류 검색", sub: "CASE 1 · 기본 양식" },
   { id: "upload", label: "자체 양식", sub: "CASE 2 · 업로드" },
+  { id: "custom", label: "맞춤 초안", sub: "CASE 3 · 구성 만들기" },
   { id: "notice", label: "안내문 분석", sub: "예정" },
 ] as const;
 
@@ -20,7 +22,7 @@ function Row({ t, badge, adding, onAdd }: { t: Template; badge?: ReactNode; addi
     <li className="flex items-center justify-between gap-2 py-2.5">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-sm font-medium">
-          {t.name} <Badge tone="gray">{t.output_format === "xlsx" ? "Excel" : t.output_format === "hwpx" ? "한글" : t.output_format === "pdf" ? "PDF" : "Word"}</Badge> <PastNoticeBadge template={t} /> {badge}
+          {t.name} {t.kind === "custom" && <Badge tone="amber">맞춤 초안</Badge>} <Badge tone="gray">{t.output_format === "xlsx" ? "Excel" : t.output_format === "hwpx" ? "한글" : t.output_format === "pdf" ? "PDF" : "Word"}</Badge> <PastNoticeBadge template={t} /> {badge}
         </div>
         <div className="truncate text-xs text-muted">{t.description}</div>
       </div>
@@ -55,7 +57,7 @@ export default function AddDocumentPanel({ contractId, clientName, onAdd }: { co
   }, [q, contractId, clientName, projectCode]);
 
   useEffect(() => {
-    if (tab === "upload") api.get<Template[]>("/templates?kind=uploaded").then((t) => setMine(t.filter((x) => x.status === "ready" && x.library.scope === "private"))).catch(e => setError(e.message));
+    if (tab === "upload") api.get<Template[]>("/templates").then((t) => setMine(t.filter((x) => x.status === "ready" && x.library.scope === "private"))).catch(e => setError(e.message));
   }, [tab]);
 
   const add = async (id: number) => {
@@ -69,7 +71,7 @@ export default function AddDocumentPanel({ contractId, clientName, onAdd }: { co
 
   return (
     <Card>
-      <div className="grid grid-cols-3 border-b border-line">
+      <div className="grid grid-cols-2 border-b border-line">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -129,7 +131,7 @@ export default function AddDocumentPanel({ contractId, clientName, onAdd }: { co
                 양식 업로드하기
               </Link>
             </div>
-            <div className="mt-4 text-xs font-medium text-muted">내 자체 양식</div>
+            <div className="mt-4 text-xs font-medium text-muted">내 저장 양식</div>
             <ul className="divide-y divide-line">
               {mine.map((t) => (
                 <Row key={t.id} t={t} adding={adding === t.id} onAdd={() => add(t.id)} />
@@ -139,6 +141,7 @@ export default function AddDocumentPanel({ contractId, clientName, onAdd }: { co
           </>
         )}
 
+        <div hidden={tab !== "custom"}><CustomPlanBuilder contractId={contractId} /></div>
         {tab === "notice" && (
           <div className="py-6 text-center text-sm text-muted">
             <p className="font-medium text-foreground">제출서류 안내문 AI 분석</p>

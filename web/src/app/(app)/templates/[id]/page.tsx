@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useStandardFields } from "@/lib/hooks";
 import type { LibraryMetadata, Template, TemplateField } from "@/lib/types";
+import CustomTemplateDetails from "@/components/CustomTemplateDetails";
 import MappingEditor from "@/components/MappingEditor";
 import LibraryMetadataEditor, { metadataPayload } from "@/components/LibraryMetadataEditor";
 import { PastNoticeBadge } from "@/components/TemplateExtras";
@@ -45,6 +46,7 @@ export default function TemplateDetailPage() {
     setMessage(x.library.scope === "organization" ? "저장했습니다. 출력과 이용 조건을 확인한 뒤 공개하세요." : "저장했습니다.");
   });
   if (!t) return error ? <ErrorText>{error}</ErrorText> : <Loading />;
+  if (t.kind === "custom") return <CustomTemplateDetails key={t.id} template={t} />;
   if (t.kind === "builtin") return <p>공통 양식은 라이브러리에서 미리볼 수 있습니다.</p>;
   return <>
     <PageHeader back={{ href: "/templates", label: "양식 라이브러리" }} title={t.name} desc={t.description} action={editable ? <Button variant="danger" onClick={() => {

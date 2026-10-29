@@ -36,7 +36,7 @@ def _norm(v) -> str:
 def document_keys(doc) -> tuple[list[str], list[str]]:
     """(서류에서 쓰는 필드 키, 필수 키)"""
     t = doc.template
-    if t.kind == "builtin":
+    if t.kind in ("builtin", "custom"):
         from app.builtin_templates import template_field_keys
 
         keys = template_field_keys(t.definition)
@@ -57,6 +57,14 @@ def _issue(severity, type_, message, docs=(), field_key=None):
     }
 
 
+def has_value(template, key, value):
+    text = str(value or "")
+    if template.kind == "custom" and any(section.get("key") == key and section.get("kind") == "table"
+                                         for section in template.definition["custom_plan"]["layout"]["sections"]):
+        text = text.replace("|", "")
+    return bool(text.strip())
+
+
 def validate(documents: list, master: dict) -> dict:
     """documents: Document 목록(template 로드됨), master: 회사·계약정보 기준값."""
     issues: list[dict] = []
@@ -65,8 +73,11 @@ def validate(documents: list, master: dict) -> dict:
         keys, required = document_keys(d)
         v = d.values or {}
         for k in required:
-            if not str(v.get(k, "") or "").strip():
-                issues.append(_issue("error", "누락", f"'{field_label(k)}' 값이 비어 있습니다.", [d], k))
+            if not has_value(d.template, k, v.get(k)):
+                label = next((f["label"] for f in d.template.fields if f.get("field_key") == k), field_label(k))
+                issue = _issue("error", "누락", f"'{label}' 값이 비어 있습니다.", [d], k)
+                issue["field_label"] = label
+                issues.append(issue)
 
         if d.template.kind == "uploaded":
             unmapped = [f["label"] for f in d.template.fields if not f.get("field_key")]
@@ -91,7 +102,7 @@ def validate(documents: list, master: dict) -> dict:
                 total = sum(sum(item_amounts(i)) for i in items)
                 if amt is not None and total != amt:
                     issues.append(_issue("error", "내역 합계", f"품목별 금액 합계({total:,}원)가 계약금액({amt:,}원)과 다릅니다.", [d], key))
-        if d.template.kind == "builtin":
+        if d.template.kind in ("builtin", "custom"):
             issues.append(_issue("warning", "제출 확인", "발주기관 지정 서식·첨부서류·대표자 날인 여부를 확인하세요. 미리보기는 PDF 배치 기준이며 HWPX는 한글에서 최종 확인하세요.", [d]))
         sup, vat = _money(v.get("supply_amount")), _money(v.get("vat"))
         if amt and sup is not None and vat is not None and "supply_amount" in keys and sup + vat != amt:

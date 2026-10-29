@@ -56,11 +56,11 @@ export default function TemplatesPage() {
     <>
       <PageHeader
         title="양식 라이브러리"
-        desc="공통 양식, 제출처 지정 양식, 내 업로드 양식을 구분해 관리합니다."
+        desc="공통 양식, 제출처 지정 양식, 내 양식을 구분해 관리합니다."
         action={<LinkButton href="/templates/upload">＋ 자체 양식 업로드</LinkButton>}
       />
 
-      <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="양식 구분">{[["common", "공통 양식"], ["organization", "기관·기업 지정 양식"], ["private", "내 업로드 양식"]].map(([key, label]) => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)} className={`rounded-lg px-4 py-2 text-sm ${section === key ? "bg-primary text-white" : "bg-white border border-line"}`}>{label}</button>)}</div>
+      <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="양식 구분">{[["common", "공통 양식"], ["organization", "기관·기업 지정 양식"], ["private", "내 양식"]].map(([key, label]) => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)} className={`rounded-lg px-4 py-2 text-sm ${section === key ? "bg-primary text-white" : "bg-white border border-line"}`}>{label}</button>)}</div>
       <ErrorText>{loadError}</ErrorText>
       <ErrorText>{favorites.error}</ErrorText>
       {section === "organization" && <OrganizationLibrary items={items} admin={admin} favorites={favorites} />}
@@ -108,7 +108,7 @@ export default function TemplatesPage() {
       </Card>}
 
       {section === "private" && <Card>
-        <CardHeader title="내 업로드 양식" desc="공개되지 않는 개인 양식입니다. 업로드한 원본은 보관기간 후 삭제됩니다." />
+        <CardHeader title="내 양식" desc="공개되지 않는 개인 양식입니다. 업로드한 원본은 보관기간 후 삭제됩니다." />
         {mine.length === 0 ? (
           <Empty title="업로드한 양식이 없습니다" desc="발주처가 보낸 한글·Word·PDF 양식을 올리면 입력 항목을 분석합니다." action={<LinkButton href="/templates/upload">업로드하기</LinkButton>} />
         ) : (
@@ -120,7 +120,7 @@ export default function TemplatesPage() {
                   <div>
                     <div className="flex items-center gap-1.5 font-medium">
                       {t.name}
-                      <Badge tone="blue">{t.source_type?.toUpperCase()}</Badge>
+                      <Badge tone="blue">{t.kind === "custom" ? "맞춤 초안" : t.source_type?.toUpperCase()}</Badge>
                       {t.status === "analyzing" ? <Badge tone="amber">매핑 확인 필요</Badge> : <Badge tone="green">사용 가능</Badge>}
                     </div>
                     <div className="mt-0.5 text-xs text-muted">
@@ -128,7 +128,7 @@ export default function TemplatesPage() {
                       {t.expires_at && ` · 원본 보관 ~ ${t.expires_at.slice(0, 10)}`}
                     </div>
                   </div>
-                  <span className="text-sm text-primary">매핑 보기 →</span>
+                  <span className="text-sm text-primary">{t.kind === "custom" ? "구성 보기 →" : "매핑 보기 →"}</span>
                 </Link>
               </li>
             ))}

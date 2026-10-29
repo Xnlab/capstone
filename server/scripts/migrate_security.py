@@ -17,9 +17,10 @@ from sqlalchemy.dialects import postgresql
 from app.core.database import Base, SessionLocal, engine
 from app.core.encryption import EncryptedBytes, EncryptedJSON, EncryptedText, PREFIX, cipher, decrypt, encrypt
 from app.core.config import settings
-from app.models import AuthSession, AuthThrottle, SensitiveGrant, Template, LibraryAdmin, User
+from app.models import AuthSession, AuthThrottle, SensitiveGrant, Template, LibraryAdmin, User, MfaCredential, MfaChallenge, MfaRecovery
 
-NEW = (AuthSession.__table__, AuthThrottle.__table__, SensitiveGrant.__table__, LibraryAdmin.__table__)
+NEW = (AuthSession.__table__, AuthThrottle.__table__, SensitiveGrant.__table__, LibraryAdmin.__table__,
+       MfaCredential.__table__, MfaChallenge.__table__, MfaRecovery.__table__)
 
 
 def schema_sql():
@@ -37,10 +38,10 @@ def schema_sql():
         for column in table.columns:
             if isinstance(column.type, EncryptedText):
                 lines.append(f'ALTER TABLE capstone.{table.name} ALTER COLUMN {column.name} TYPE TEXT;')
-    return '\n'.join(lines)
+    return '\n'.join(line.rstrip() for line in '\n'.join(lines).strip().splitlines())
 
 
-def migrate_data(db):
+def migrate_data(db, *, rotate_files=False):
     counts={}
     for table in Base.metadata.sorted_tables:
         columns=[col for col in table.columns if isinstance(col.type,(EncryptedText,EncryptedJSON,EncryptedBytes))]
@@ -66,9 +67,15 @@ def migrate_data(db):
                 data=target.read_bytes()
                 if data.startswith(PREFIX):
                     decrypt(data)  # Check key availability; never silently preserve unreadable files.
-                    continue
+                    if not rotate_files:
+                        continue
+                    data = decrypt(data)
+                if rotate_files and not target.resolve().is_relative_to(settings.UPLOAD_DIR.resolve()):
+                    raise RuntimeError('Original file is outside the configured upload directory; rotation stopped.')
                 temporary=target.with_name(target.name+'.encrypting')
                 temporary.write_bytes(encrypt(data))
+                if decrypt(temporary.read_bytes()) != data:
+                    raise RuntimeError('Encrypted original verification failed; original retained.')
                 os.replace(temporary,target)
     return counts
 
@@ -83,7 +90,7 @@ def main():
     if args.schema_sql:
         print(schema_sql());return
     if not args.apply:
-        print('Plan: add 4 security tables, preserve existing accounts, encrypt supported fields and local originals. Use --schema-sql for PostgreSQL.');return
+        print('Plan: add security/MFA tables, preserve existing accounts, encrypt supported fields and local originals. Use --schema-sql for PostgreSQL.');return
     if not args.backup_confirmed:
         raise SystemExit('A verified backup and write pause are required before applying.')
     cipher()

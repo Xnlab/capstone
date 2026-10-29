@@ -134,7 +134,7 @@ export default function ContractWorkspace() {
                         <Link href={`/contracts/${cid}/documents/${d.id}`} className="font-medium hover:text-primary">
                           {d.title}
                         </Link>
-                        <Badge tone={d.template_kind === "builtin" ? "gray" : "blue"}>{d.template_kind === "builtin" ? "기본 양식" : "자체 양식"}</Badge>
+                        <Badge tone={d.template_kind === "builtin" ? "gray" : "blue"}>{d.template_kind === "builtin" ? "기본 양식" : d.template_kind === "custom" ? "맞춤 초안" : "자체 양식"}</Badge>
                         <Badge tone="indigo">{d.output_format === "xlsx" ? "Excel" : d.output_format === "hwpx" ? "한글" : d.output_format === "pdf" ? "PDF" : "Word"}</Badge>
                         {d.status === "reviewed" ? <Badge tone="green">검토 완료</Badge> : <Badge tone="amber">작성 중</Badge>}
                       </div>

@@ -178,6 +178,25 @@ def _items_docx(doc, raw, values, mode):
     _paragraph(doc, after=5)
 
 
+def data_table_rows(section, values):
+    """Pipe-delimited editable cells; never infer staff, dates or quantities."""
+    from fastapi import HTTPException
+    columns = section['columns']
+    lines = [line for line in str(values.get(section['key'], '') or '').splitlines() if line.strip()]
+    if len(lines) > 50:
+        raise HTTPException(422, '맞춤 표는 항목당 50행 이내로 작성하세요.')
+    rows = [columns]
+    for line in lines:
+        cells = [cell.strip() for cell in line.split('|')]
+        if len(cells) != len(columns):
+            raise HTTPException(422, f"'{section['label']}' 표는 한 줄에 {len(columns)}개 값을 |로 구분하세요.")
+        if any(cells):
+            rows.append(cells)
+    if len(rows) == 1:
+        rows.extend([[''] * len(columns) for _ in range(3)])
+    return rows
+
+
 def render_docx(definition: dict, values: dict, seal=None) -> DocxDocument:
     values = presentation_values(values)
     doc = _doc_base(definition.get("title", "서류"))
@@ -199,6 +218,21 @@ def render_docx(definition: dict, values: dict, seal=None) -> DocxDocument:
             _set_cell_text(table.cell(0, 0), section["label"], bold=True)
             _set_cell_shading(table.cell(0, 0), "F2F3F5")
             _set_cell_text(table.cell(1, 0), values.get(section["key"], ""), size=10)
+            _paragraph(doc, after=5)
+        elif kind == "data_table":
+            _paragraph(doc, section['label'], bold=True, after=5)
+            rows = data_table_rows(section, values)
+            table = doc.add_table(rows=len(rows), cols=len(rows[0]))
+            table.style = 'Table Grid'
+            table.autofit = False
+            for column in table.columns:
+                column.width = Cm(16.6 / len(rows[0]))
+            for ri, row in enumerate(rows):
+                for ci, value in enumerate(row):
+                    _set_cell_text(table.cell(ri, ci), value, bold=ri == 0, size=10)
+                    if ri == 0: _set_cell_shading(table.cell(ri, ci), 'F2F3F5')
+                if ri > 0: table.rows[ri].height = Cm(.7)
+            table.rows[0]._tr.get_or_add_trPr().append(OxmlElement('w:tblHeader'))
             _paragraph(doc, after=5)
         elif kind == "line_items":
             _items_docx(doc, values.get(section.get("key"), ""), values, section.get("mode", "cost"))
@@ -448,6 +482,11 @@ def _hwpx_section(definition: dict, values: dict, seal=None, seal_style=None) ->
         elif kind == "field_block":
             label, value = section["label"], str(values.get(section["key"], "") or "")
             root.append(_hp_table([[label], [value]], [50000], header_rows=1)); preview += [label, value]
+        elif kind == "data_table":
+            rows = data_table_rows(section, values)
+            root.append(_hp_paragraph(section['label'], char_style=15))
+            root.append(_hp_table(rows, [50000 // len(rows[0])] * len(rows[0]), header_rows=1))
+            preview += [section['label'], *[' | '.join(row) for row in rows]]
         elif kind == "line_items":
             items = parse_items(values.get(section.get("key"), ""), values.get("description") or values.get("contract_title", ""), money(values.get("supply_amount")))
             rows = [["항 목", "수량", "단가", "공급가액", "세액", "합계"]]

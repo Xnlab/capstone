@@ -16,7 +16,7 @@ from app.services.source_storage import resolve
 
 
 def template_keys(t: Template) -> list[str]:
-    if t.kind == "builtin":
+    if t.kind in ("builtin", "custom"):
         return template_field_keys(t.definition)
     keys, seen = [], set()
     for f in t.fields:
@@ -29,6 +29,9 @@ def template_keys(t: Template) -> list[str]:
 
 def auto_values(db: Session, user_id: int, t: Template, company: Company | None, contract: Contract) -> dict:
     """회사·계약정보 → 이 양식이 쓰는 필드만 골라 값 채우기. AI 문장 필드는 생성."""
+    if t.kind == "custom":
+        from app.services.custom_plans import values
+        return values(t, company, contract)
     base = base_values(company, contract)
     keys = template_keys(t)
     values = {k: base.get(k, "") for k in keys}
@@ -55,7 +58,15 @@ def sync_contract_values(doc: Document, previous: dict, current: dict) -> bool:
     values = dict(doc.values or {})
     changed = False
     for key in related.intersection(template_keys(doc.template)):
+        if doc.template.kind == 'custom' and any(section['key'] == key and section['kind'] == 'table' for section in doc.template.definition['custom_plan']['layout']['sections']):
+            continue
         existing = values.get(key, "")
+        if doc.template.kind == 'custom' and key == 'work_summary':
+            if not str(existing or '').strip() or existing == previous.get('description', ''):
+                if existing != current.get('description', ''):
+                    values[key] = current.get('description', '')
+                    changed = True
+            continue
         if not str(existing or "").strip() or existing == previous.get(key, ""):
             value = current.get(key, "")
             if existing != value:
@@ -72,7 +83,7 @@ def build_docx(doc: Document):
     if positioned(t):
         from fastapi import HTTPException
         raise HTTPException(400, "원본 PDF 지정 양식은 PDF 형식으로 출력하세요.")
-    if t.kind == "builtin":
+    if t.kind in ("builtin", "custom"):
         return renderer.render_builtin_docx(t.definition, doc.values, seal=document_seal(doc))
     if t.source_type == "docx" and t.source_path:
         path = resolve(t)
@@ -89,7 +100,7 @@ def output_format(t: Template) -> str:
     """User-facing native format. Uploaded forms keep their existing DOCX path."""
     if positioned(t):
         return "pdf"
-    if t.kind == "builtin":
+    if t.kind in ("builtin", "custom"):
         return t.definition.get("output_format", "hwpx")
     if t.source_type in ('hwp', 'hwpx'):
         return 'hwpx'
@@ -100,7 +111,7 @@ def build_native(doc: Document) -> tuple[bytes, str, str]:
     """Return bytes, extension, and full media type for the preferred native file."""
     if positioned(doc.template):
         return fill_pdf(doc.template, doc.values), "pdf", "application/pdf"
-    if doc.template.kind == "builtin" and doc.template.definition.get("sections"):
+    if doc.template.kind in ("builtin", "custom") and doc.template.definition.get("sections"):
         return render_native(doc.template.definition, doc.values, seal=document_seal(doc))
     if doc.template.source_type in ('hwp', 'hwpx'):
         from app.services.hwpx_forms import editable_path, fill
@@ -154,7 +165,7 @@ def safe_filename(name: str) -> str:
 
 
 def to_out(doc: Document) -> dict:
-    from app.services.validator import document_keys
+    from app.services.validator import document_keys, has_value
 
     keys, required = document_keys(doc)
     return {
@@ -169,5 +180,5 @@ def to_out(doc: Document) -> dict:
         "template_kind": doc.template.kind,
         "output_format": output_format(doc.template),
         "field_keys": keys,
-        "missing": [k for k in required if not str((doc.values or {}).get(k, "") or "").strip()],
+        "missing": [k for k in required if not has_value(doc.template, k, (doc.values or {}).get(k))],
     }

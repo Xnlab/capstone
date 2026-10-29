@@ -35,7 +35,7 @@ async function request(path: string, init: RequestInit = {}, retried = false): P
   const headers = new Headers(init.headers);
   try { localStorage.removeItem(TOKEN_KEY); } catch {}
   const method = init.method ?? "GET";
-  if (!["GET", "HEAD", "OPTIONS"].includes(method) && !["/auth/login", "/auth/register"].includes(path)) {
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && !["/auth/login", "/auth/register", "/auth/mfa/verify"].includes(path)) {
     headers.set("X-CSRF-Token", await csrfToken());
   }
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");

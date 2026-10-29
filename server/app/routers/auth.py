@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import (SESSION_COOKIE, check_origin, create_access_token, csrf_token,
                                digest, get_current_user, hash_password, set_session_cookie,
-                               throttle, verify_password)
-from app.models import AuditLog, AuthSession, Company, Contract, Document, SensitiveGrant, User
+                               throttle, verify_password, lock_account)
+from app.models import AuditLog, AuthSession, Company, Contract, Document, SensitiveGrant, User, MfaCredential, MfaChallenge
 from app.schemas import LoginIn, RegisterIn, UserOut
 
 router = APIRouter(prefix='/auth', tags=['auth'])
@@ -49,12 +49,21 @@ def login(body: LoginIn, response: Response, request: Request, db: Session = Dep
     check_origin(request)
     email = body.email.strip().lower()
     throttle(db, request, 'login', email)
-    user = db.scalar(select(User).where(User.email == email))
+    user = db.scalar(select(User).where(User.email == email).with_for_update().execution_options(populate_existing=True))
     valid = verify_password(body.password, user.password_hash if user else _DUMMY_HASH)
     if not user or not valid:
         db.add(AuditLog(user_id=user.id if user else None, action='login_failed', detail='로그인 인증 실패'))
         db.commit()
         raise HTTPException(401, '이메일 또는 비밀번호가 올바르지 않습니다.')
+    credential = db.get(MfaCredential, user.id)
+    if credential and credential.enabled:
+        raw = secrets.token_urlsafe(32)
+        db.execute(delete(MfaChallenge).where(MfaChallenge.expires_at <= datetime.utcnow()))
+        db.add(MfaChallenge(token_hash=digest(raw), user_id=user.id,
+                            expires_at=datetime.utcnow() + timedelta(minutes=5)))
+        db.commit()
+        response.headers['Cache-Control'] = 'no-store'
+        return {'mfa_required': True, 'challenge': raw}
     return issue(db, response, request, user)
 
 
@@ -82,6 +91,8 @@ def revoke(db, request, user, all_devices=False):
     keys = list(db.scalars(query))
     db.execute(delete(SensitiveGrant).where(SensitiveGrant.session_hash.in_(keys)))
     db.execute(delete(AuthSession).where(AuthSession.token_hash.in_(keys)))
+    if all_devices:
+        db.execute(delete(MfaChallenge).where(MfaChallenge.user_id == user.id))
     db.add(AuditLog(user_id=user.id, action='logout_all' if all_devices else 'logout', detail='로그인 세션 폐기'))
     db.commit()
 
@@ -95,6 +106,7 @@ def logout(request: Request, response: Response, user: User = Depends(get_curren
 
 @router.post('/logout-all')
 def logout_all(request: Request, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    lock_account(db, request, user)
     revoke(db, request, user, True)
     response.delete_cookie(SESSION_COOKIE, path='/', secure=SESSION_COOKIE.startswith('__Host-'), httponly=True, samesite='strict')
     return {'ok': True}
@@ -103,14 +115,20 @@ def logout_all(request: Request, response: Response, user: User = Depends(get_cu
 class ReauthenticateIn(BaseModel):
     password: str = Field(max_length=100)
     scope: str = Field(max_length=100)
+    code: str = Field(default='', max_length=40)
 
 
 @router.post('/reauthenticate')
 def reauthenticate(body: ReauthenticateIn, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     throttle(db, request, 'reauth', str(user.id))
+    lock_account(db, request, user)
     if not verify_password(body.password, user.password_hash):
         db.add(AuditLog(user_id=user.id, action='reauth_failed', detail='민감 작업 재인증 실패')); db.commit()
         raise HTTPException(403, '비밀번호를 확인하세요.')
+    credential = db.get(MfaCredential, user.id)
+    if credential and credential.enabled:
+        from app.core.mfa import verify_factor
+        verify_factor(db, credential, body.code)
     valid = body.scope in {'seal:read', 'seal:manage', 'data:delete'}
     match = re.fullmatch(r'(document|contract):(\d+):(download|export|mail)', body.scope)
     if match:

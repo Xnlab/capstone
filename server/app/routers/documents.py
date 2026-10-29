@@ -66,6 +66,8 @@ def reapply(document_id: int, user: User = Depends(get_current_user), db: Sessio
 @router.post("/{document_id}/generate/{field_key}")
 def generate_field(document_id: int, field_key: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     d = get_owned_doc(db, user, document_id)
+    if d.template.kind == "custom":
+        raise HTTPException(400, "맞춤 초안의 본문은 확인된 정보와 직접 입력으로 작성하세요. 외부 AI 구성 제안은 별도 동의 절차를 이용하세요.")
     if field_key != "work_summary":
         raise HTTPException(400, "AI 생성은 문장형 항목(과업 개요)만 지원합니다.")
     base = base_values(get_or_create_company(db, user), d.contract)
@@ -92,7 +94,7 @@ def preview_pages(document_id: int, user: User = Depends(get_current_user), db: 
 @router.get("/{document_id}/download")
 def download(document_id: int, request: Request, format: str = "native", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     d = get_owned_doc(db, user, document_id)
-    if d.template.kind == "builtin" and user.company and user.company.seal_image:
+    if d.template.kind in ("builtin", "custom") and user.company and user.company.seal_image:
         require_sensitive(request, db, user, f"document:{d.id}:download")
     name = safe_filename(f"{d.contract.contract_title}_{d.title}")
     if format == "pdf":

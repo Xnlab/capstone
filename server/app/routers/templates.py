@@ -73,6 +73,15 @@ SAMPLE_VALUES = {
 }
 
 
+def sample_values(template):
+    values = dict(SAMPLE_VALUES)
+    if template.kind == 'custom':
+        for section in template.definition['custom_plan']['layout']['sections']:
+            if section['kind'] == 'table':
+                values[section['key']] = ''
+    return values
+
+
 def to_out(t: Template) -> dict:
     return {
         "id": t.id, "kind": t.kind, "name": t.name, "category": t.category,
@@ -82,6 +91,7 @@ def to_out(t: Template) -> dict:
         "expires_at": t.expires_at, "created_at": t.created_at,
         "library": {"scope": scope(t), **metadata(t)},
         "output_format": output_format(t),
+        "custom_plan": t.definition.get("custom_plan") if t.kind == "custom" else None,
     }
 
 
@@ -106,6 +116,8 @@ def get_editable(db, user, template_id):
     t = get_visible(db, user, template_id)
     if t.kind == "builtin":
         raise HTTPException(400, "기본 양식은 수정할 수 없습니다.")
+    if t.kind == "custom":
+        raise HTTPException(400, "맞춤 양식은 새 초안 구성에서 수정하세요. 공개·업로드 매핑 변경은 지원하지 않습니다.")
     if scope(t) == "organization":
         require_admin(user)
         if db.scalar(select(Document.id).where(Document.template_id == t.id).limit(1)):
@@ -390,7 +402,7 @@ def publish(template_id: int, body: LibraryPublishIn, user: User = Depends(get_c
 def review_preview(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     t = get_visible(db, user, template_id)
     from app.services.documents import preview_html
-    doc = Document(template=t, values=SAMPLE_VALUES)
+    doc = Document(template=t, values=sample_values(t))
     return {"html": preview_html(doc)}
 
 
@@ -408,7 +420,7 @@ def original(template_id: int, user: User = Depends(get_current_user), db: Sessi
 def sample_file(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     from app.services.documents import build_native
     t = get_visible(db, user, template_id)
-    doc = Document(template=t, values=SAMPLE_VALUES)
+    doc = Document(template=t, values=sample_values(t))
     data, extension, media = build_native(doc)
     return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="sample.{extension}"'})
 
@@ -417,14 +429,18 @@ def sample_file(template_id: int, user: User = Depends(get_current_user), db: Se
 def review_preview_pages(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     from app.services.documents import build_pdf
     template = get_visible(db, user, template_id)
-    return {'pages': renderer.pdf_preview_pages(build_pdf(Document(template=template, values=SAMPLE_VALUES)))}
+    return {'pages': renderer.pdf_preview_pages(build_pdf(Document(template=template, values=sample_values(template))))}
 
 
 @router.delete("/{template_id}")
 def delete_template(template_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """자체 양식 삭제 (원본 파일 즉시 삭제 — 3주차 보안 ⑤자동 삭제/사용자 요청 삭제)."""
-    t = get_editable(db, user, template_id)
-    if t.kind != "uploaded":
+    t = get_visible(db, user, template_id)
+    if t.kind != "custom":
+        t = get_editable(db, user, template_id)
+    elif t.owner_id != user.id:
+        raise HTTPException(404, "양식을 찾을 수 없습니다.")
+    if t.kind not in ("uploaded", "custom"):
         raise HTTPException(400, "기본 양식은 삭제할 수 없습니다.")
     if db.scalar(select(Document.id).where(Document.template_id == t.id).limit(1)):
         raise HTTPException(409, "이 양식으로 작성된 서류가 있어 삭제할 수 없습니다. 서류를 먼저 삭제하세요.")

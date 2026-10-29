@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import bcrypt
 from fastapi import Depends, HTTPException, Request, Response
-from sqlalchemy import case, delete, update
+from sqlalchemy import case, delete, update, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -96,6 +96,16 @@ def throttle(db: Session, request: Request, purpose: str, identity: str):
         db.commit()
         if count > limit:
             raise HTTPException(429, '시도 횟수를 초과했습니다. 15분 후 다시 시도하세요.', headers={'Retry-After': '900'})
+
+
+def lock_account(db, request, user):
+    """Serialize credential changes with login and recheck sessions after waiting."""
+    db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
+    session = request.state.auth_session
+    active = db.scalar(select(AuthSession.token_hash).where(
+        AuthSession.token_hash == session.token_hash, AuthSession.expires_at > datetime.utcnow()))
+    if not active:
+        raise HTTPException(401, '보안 설정이 변경되었습니다. 다시 로그인하세요.')
 
 
 def require_sensitive(request: Request, db: Session, user: User, scope: str):

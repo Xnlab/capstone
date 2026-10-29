@@ -160,3 +160,26 @@ class SensitiveGrant(Base):
     session_hash: Mapped[str] = mapped_column(ForeignKey("auth_sessions.token_hash", ondelete="CASCADE"), index=True)
     scope: Mapped[str] = mapped_column(String(100))
     expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class MfaCredential(Base):
+    __tablename__ = "mfa_credentials"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    secret: Mapped[str] = mapped_column(EncryptedText)
+    enabled: Mapped[int] = mapped_column(Integer, default=0)
+    last_step: Mapped[int] = mapped_column(Integer, default=-1)
+    pending_session: Mapped[str] = mapped_column(String(64))
+    pending_expires: Mapped[datetime] = mapped_column(DateTime)
+
+
+class MfaRecovery(Base):
+    __tablename__ = "mfa_recovery"
+    code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+
+
+class MfaChallenge(Base):
+    __tablename__ = "mfa_challenges"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)

@@ -9,12 +9,13 @@ export default function ReauthDialog() {
   const queue = useRef<ReauthRequest[]>([]);
   const active = useRef<ReauthRequest | null>(null);
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const advance = () => {
     active.current = queue.current.shift() ?? null;
-    setCurrent(active.current); setPassword(""); setError("");
+    setCurrent(active.current); setPassword(""); setCode(""); setError("");
   };
   useEffect(() => {
     const listener = (event: Event) => {
@@ -42,9 +43,9 @@ export default function ReauthDialog() {
     if (!current) return;
     setBusy(true); setError("");
     try {
-      const result = await api.post<{ grant: string }>("/auth/reauthenticate", { password, scope: current.scope });
+      const result = await api.post<{ grant: string }>("/auth/reauthenticate", { password, code, scope: current.scope });
       current.resolve(result.grant); advance();
-    } catch (e) { setPassword(""); setError((e as Error).message); }
+    } catch (e) { setPassword(""); setCode(""); setError((e as Error).message); }
     finally { setBusy(false); }
   };
   return <dialog ref={dialog} onCancel={event => { event.preventDefault(); cancel(); }} aria-labelledby="reauth-title" className="m-auto w-full max-w-md rounded-xl border border-line bg-white p-6 shadow-xl backdrop:bg-black/40">
@@ -54,6 +55,8 @@ export default function ReauthDialog() {
       {current?.scope === "data:delete" && <p className="mb-3 text-sm text-red-700">내 계약·서류·개인 양식·회사정보·인감을 삭제합니다. 다운로드한 파일과 제공업체 백업은 별도입니다.</p>}
       <label htmlFor="reauth-password" className="text-sm">현재 비밀번호</label>
       <Input id="reauth-password" type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} disabled={busy} autoFocus />
+      <label htmlFor="reauth-code" className="mt-3 block text-sm">2단계 인증 코드 (설정한 경우 필수)</label>
+      <Input id="reauth-code" autoComplete="one-time-code" maxLength={40} placeholder="인증 앱의 새 코드 또는 복구 코드" value={code} onChange={event => setCode(event.target.value)} disabled={busy} />
       <ErrorText>{error}</ErrorText>
       <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" onClick={cancel} disabled={busy}>취소</Button><Button type="submit" loading={busy}>이 작업 승인</Button></div>
     </form>

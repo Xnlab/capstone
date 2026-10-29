@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, clearSession } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import AccountSecurity from "@/components/AccountSecurity";
 import { Badge, Button, Card, CardHeader, Empty, ErrorText, Loading, PageHeader } from "@/components/ui";
 
 type Log = { id: number; action: string; detail: string; created_at: string };
@@ -33,6 +34,14 @@ const ACTION: Record<string, { label: string; tone: "indigo" | "green" | "blue" 
   seal_upload: { label: "인감 등록", tone: "indigo" },
   seal_delete: { label: "인감 삭제", tone: "red" },
   data_delete: { label: "내 데이터 삭제", tone: "red" },
+  mfa_setup: { label: "인증 앱 등록 시작", tone: "blue" },
+  mfa_enabled: { label: "2단계 인증 설정", tone: "green" },
+  mfa_disabled: { label: "2단계 인증 해제", tone: "red" },
+  mfa_login: { label: "추가 인증 로그인", tone: "green" },
+  mfa_failed: { label: "추가 인증 실패", tone: "red" },
+  mfa_recovered: { label: "복구 코드 로그인", tone: "red" },
+  mfa_recovery: { label: "복구 코드 교체", tone: "indigo" },
+  password_changed: { label: "비밀번호 변경", tone: "indigo" },
 };
 
 export default function SecurityPage() {
@@ -42,7 +51,7 @@ export default function SecurityPage() {
   const [busy, setBusy] = useState(false);
   const [logs, setLogs] = useState<Log[] | null>(null);
   useEffect(() => {
-    api.get<Log[]>("/audit-logs").then(setLogs);
+    api.get<Log[]>("/audit-logs").then(setLogs).catch(e => setError(e.message));
     api.get<typeof sessions>("/auth/sessions").then(setSessions).catch(e => setError(e.message));
   }, []);
 
@@ -50,6 +59,10 @@ export default function SecurityPage() {
     <>
       <PageHeader title="보안·처리 이력" desc="기업 문서의 민감정보를 어떻게 다루는지, 그리고 내 데이터가 언제 외부로 나갔는지 확인합니다." />
       <ErrorText>{error}</ErrorText>
+      <AccountSecurity onChanged={async () => {
+        const [nextLogs, nextSessions] = await Promise.all([api.get<Log[]>("/audit-logs"), api.get<typeof sessions>("/auth/sessions")]);
+        setLogs(nextLogs); setSessions(nextSessions);
+      }} />
       <Card className="mb-5 p-5">
         <h2 className="font-semibold">로그인 세션</h2>
         <p className="my-2 text-sm text-muted">활성 세션 {sessions.length}개 · 최대 8시간 후 만료 · 로그아웃하면 서버에서도 즉시 폐기됩니다.</p>

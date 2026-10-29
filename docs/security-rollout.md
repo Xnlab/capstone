@@ -1,5 +1,7 @@
 # Security rollout — 2026-10-29
 
+Update 2026-10-30: local code now also supports authenticator-app MFA, one-use recovery codes, session-revoking credential changes, external key-file configuration and verified key rotation. See [account security and key operations](account-security.md) and apply the additional MFA schema before deploying. This update does not attest to the current live cloud configuration.
+
 ## Implemented, not yet applied to the live cloud
 
 - Opaque random sessions stored only as SHA-256 hashes server-side. Browser authentication uses an HttpOnly, SameSite=Strict cookie (Secure + __Host- prefix in cloud). Legacy JWT/bearer login is rejected. Session lifetime is at most 8 hours.
@@ -35,7 +37,7 @@ The application reads legacy plaintext to permit controlled migration. A source 
 
 DATA_ENCRYPTION_KEYS accepts newest-first comma-separated keys. Reads try every retained key; new writes use the first. Re-run the data migration to rewrite rows. Local encrypted originals require a separate validated re-encryption/rotation operation (the migration verifies but does not rotate already encrypted files). Retain old keys until legacy files and required backups have expired. Key loss makes encrypted data unrecoverable.
 
-This is not zero-knowledge or end-to-end encryption: the application server can decrypt authorized data. MFA, user-scoped DB RLS, managed KMS, application penetration testing, alerting/provider monitoring and verified provider backup-erasure timelines remain follow-up work. Functional tests do not certify production security.
+This is not zero-knowledge or end-to-end encryption: the application server can decrypt authorized data. User-scoped DB RLS, managed KMS provisioning, application penetration testing, alerting/provider monitoring and verified provider backup-erasure timelines remain follow-up work. MFA and key operations are implemented locally as described above; rollout and actual enrollment still require verification. Functional tests do not certify production security.
 
 ## Verification in this workspace
 
